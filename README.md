@@ -1,5 +1,7 @@
 # DSEmployee
 
+[English](README-en.md) | **简体中文**
+
 **基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的数字员工平台。**
 
 dsh 本身是一个完整的 Agent 运行时，但它只管单机、不管"谁能访问"。DSEmployee 在它之上

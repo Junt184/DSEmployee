@@ -22,7 +22,7 @@ import path from 'node:path'
 
 const ROOT = path.join(import.meta.dirname, '..')
 const SCAN_DIRS = ['src', 'scripts', 'bin', 'test', 'design']
-const SCAN_ROOT_FILES = ['README.md', 'README.en.md', 'package.json', 'tsconfig.json']
+const SCAN_ROOT_FILES = ['README.md', 'README-en.md', 'package.json', 'tsconfig.json']
 const SCAN_EXT = new Set(['.ts', '.mjs', '.js', '.sh', '.ps1', '.md', '.json', '.yml', '.yaml'])
 
 /** 占位用户名：只有这些允许出现（真实用户名一律拦下，包括 `user` 这种看着像占位的）。 */
