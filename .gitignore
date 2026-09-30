@@ -1,0 +1,68 @@
+# ── 依赖与构建产物 ──
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ── 本地运行状态 ──
+# 通配而不是逐个列举：这类目录的名字随测试/部署方式变化，列举一定会漏
+# （写这份文件的当天就漏过一个新加的 .dshdemo/）。
+.dsh*/
+.dse-*/
+.dsemployee/
+.dev-employees/
+.npm-cache/
+
+# ── 运行日志与临时目录 ──
+.dse-*.log
+.two-nodes.log
+.tmp-hub-test-*/
+.tmp-*/
+.git-commit-msg.txt
+
+# ── 编辑器 / 系统 ──
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ── 以下并入 Gitee 仓库模板原有条目，避免丢东西 ──
+# Build and Release Folders
+bin-debug/
+bin-release/
+[Oo]bj/
+[Bb]in/
+
+# Other files and folders
+.settings/
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Logs
+*.log
+
+# ── 本地材料与工具产物（不是源码，也不该进版本库）──
+tmp/
+.codex/
+workDir*/
+security-audit/
+docs/
+
+# ── 员工数据与素材 ──
+# 边界一句话：**仓库里只放程序** —— 工作区、会话、证据、素材、头像属于各台机器上的
+# 运行状态（`~/.dsemployee`），不属于版本库。
+# 必须显式写：这些文件只是"未跟踪"，而未跟踪不等于安全 —— 一次 `git add -A` 就会上去。
+avatars/
+avatars.zip
+employees/
+浅夏/
+# 根目录下的图片与压缩包一律当素材（程序自己的图片资源都在 src/ 下）。
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.zip

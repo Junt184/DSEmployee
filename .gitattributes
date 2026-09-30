@@ -1,0 +1,16 @@
+# 统一行尾为 LF：否则 Windows 上克隆会在每个文件里看到 CRLF 差异，
+# 而 Linux/macOS 上拉取时又会被转换，产生无意义的整文件 diff。
+* text=auto eol=lf
+
+# 明确指定类型，避免 git 猜测
+*.ts   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+
+# 二进制（将来加进去的资源）
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.zip  binary

@@ -1,0 +1,29 @@
+{
+  "name": "dsemployee",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSEmployee — 基于 DeepSeek Harness 的数字员工平台：一台 Hub 服务器 + 多台终端节点，把 dsh 工作区变成可被授权终端远程指挥的数字员工。",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "dse": "./bin/dse.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test-isolation=none --test test/*.test.ts",
+    "test:built": "node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.0"
+  }
+}
