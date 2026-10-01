@@ -609,6 +609,21 @@ export class EmployeeStore {
     return { path: relative, content, size: info.size }
   }
 
+  async downloadFile(
+    employeeId: string,
+    relative: string,
+  ): Promise<{ path: string; data: Buffer; size: number; mimeType: string }> {
+    const found = await this.#find(employeeId)
+    const target = this.#resolveInside(found, relative)
+    const info = await stat(target)
+    if (!info.isFile()) throw new Error(`${relative} is not a regular file`)
+    const data = await readFile(target)
+    if (data.length > UPLOAD_MAX_BYTES) {
+      throw new Error(`file is too large to download: ${data.length} bytes > ${UPLOAD_MAX_BYTES} bytes`)
+    }
+    return { path: relative, data, size: data.length, mimeType: mimeTypeOf(relative) }
+  }
+
   async writeFile(
     employeeId: string,
     relative: string,
@@ -681,6 +696,27 @@ export class EmployeeStore {
     }
     return target
   }
+}
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  '.css': 'text/css',
+  '.csv': 'text/csv',
+  '.gif': 'image/gif',
+  '.html': 'text/html',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.json': 'application/json',
+  '.md': 'text/markdown',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.txt': 'text/plain',
+  '.webp': 'image/webp',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.zip': 'application/zip',
+}
+
+function mimeTypeOf(relative: string): string {
+  return MIME_BY_EXTENSION[path.extname(relative).toLowerCase()] ?? 'application/octet-stream'
 }
 
 /**
@@ -837,4 +873,3 @@ async function describeSkillFile(name: string, file: string): Promise<DescribedS
   const issues = [...bomIssues, ...validateSkillFields(parsed.fields)]
   return { name, valid: issues.length === 0, issues }
 }
-

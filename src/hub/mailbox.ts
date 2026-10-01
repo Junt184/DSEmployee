@@ -4,9 +4,10 @@
  * 为什么只排队这一种请求：判据是"调用方需不需要立刻拿到结果"。
  *   · `session.prompt`（员工的对话指令）：把消息交给员工就行，结果通过**实时流**回来
  *     （`session.event`）。节点离线时调用方也拿不到流，所以"先存起来、上线再送"语义完整 ✓
- *   · `session.create` / `session.cancel` / `employee.invoke`：调用方**必须**拿到返回的 id
- *     或结果才能继续（建完会话要打开它、互调要等答案）。排队只会让调用方拿着一个空洞的
- *     "成功"往前走，到下一步才炸 —— 那比立刻报错更糟。所以它们仍然走"立即失败"。
+ *   · `employee.invoke`：离线时以异步委派形态入队；节点上线后先确认接收，再通过
+ *     `employee.invoke.settle` 回报开始与最终结果。它不把最终结果伪装成 RPC 同步返回。
+ *   · `session.create` / `session.cancel`：调用方**必须**拿到返回的 id 或结果才能继续，
+ *     所以仍然走"立即失败"。
  *
  * 投递语义（诚实说明，不是 exactly-once）：
  *   · 投递成功 → 从队列删除（at-most-once 对已成功的这一条而言）；
@@ -24,7 +25,10 @@ import type { HubState } from './store.ts'
 import type { MailboxItem } from './types.ts'
 
 /** 只排队"结果不靠返回值"的方法。加新方法前先回答：调用方需要拿到它的返回值吗？ */
-export const QUEUEABLE_METHODS: Readonly<Record<string, true>> = { 'session.prompt': true }
+export const QUEUEABLE_METHODS: Readonly<Record<string, true>> = {
+  'session.prompt': true,
+  'employee.invoke': true,
+}
 
 /** 每个节点最多存多少条（超出丢最旧的，并如实上报）。 */
 export const MAILBOX_MAX_PER_NODE = 50
@@ -133,10 +137,14 @@ export async function flushMailbox(hub: Hub, nodeId: string): Promise<FlushResul
       result.giveUp += 1
       continue
     }
+    const requestParams =
+      item.method === 'employee.invoke'
+        ? { ...(item.params as Record<string, unknown>), async: true }
+        : item.params
     const response = await hub.requestToNode(
       nodeId,
       item.method,
-      item.params,
+      requestParams,
       MAILBOX_DELIVER_TIMEOUT_MS,
     )
     if (response.ok === true) {

@@ -205,6 +205,12 @@ export const METHODS = {
     roles: BOTH,
     summary: '读取员工工作区内的一个文本文件',
   },
+  'employee.files.download': {
+    scopes: ['employee.read'],
+    route: 'node',
+    roles: BOTH,
+    summary: '读取员工工作区内的一个二进制文件（≤2MB，base64 返回）',
+  },
   /**
    * 把二进制文件递进员工工作区（控制台的"发文件"）。
    *
@@ -458,6 +464,13 @@ export const METHODS = {
     route: 'hub',
     roles: BOTH,
     summary: '查看互调记录（谁调了谁、是否经审批、结果）',
+  },
+  'employee.invoke.settle': {
+    scopes: [],
+    route: 'hub',
+    idempotent: true,
+    roles: NODE_ONLY,
+    summary: '节点上报异步互调的开始与最终结果',
   },
 
   /* ── 授权 ── */

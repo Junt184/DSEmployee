@@ -591,6 +591,18 @@ export class NodeAgent {
           requireString(params, 'employeeId'),
           requireString(params, 'path'),
         )
+      case 'employee.files.download': {
+        const file = await store.downloadFile(
+          requireString(params, 'employeeId'),
+          requireString(params, 'path'),
+        )
+        return {
+          path: file.path,
+          size: file.size,
+          mimeType: file.mimeType,
+          dataBase64: file.data.toString('base64'),
+        }
+      }
       case 'employee.files.set':
         return await store.writeFile(
           requireString(params, 'employeeId'),
@@ -853,13 +865,17 @@ export class NodeAgent {
       }
 
       /* ── 员工互调 ── */
-      case 'employee.invoke':
-        return await this.#invokeEmployee(
-          requireString(params, 'invokeId'),
-          requireString(params, 'fromEmployeeId'),
-          requireString(params, 'toEmployeeId'),
-          requireString(params, 'task'),
-        )
+      case 'employee.invoke': {
+        const invokeId = requireString(params, 'invokeId')
+        const fromEmployeeId = requireString(params, 'fromEmployeeId')
+        const toEmployeeId = requireString(params, 'toEmployeeId')
+        const task = requireString(params, 'task')
+        if (params['async'] === true) {
+          void this.#invokeEmployeeAsync(invokeId, fromEmployeeId, toEmployeeId, task)
+          return { accepted: true, invokeId }
+        }
+        return await this.#invokeEmployee(invokeId, fromEmployeeId, toEmployeeId, task)
+      }
 
       default:
         throw new Error(`node does not implement method "${method}"`)
@@ -920,7 +936,8 @@ export class NodeAgent {
     fromEmployeeId: string,
     toEmployeeId: string,
     task: string,
-  ): Promise<{ sessionId: string; resultText?: string }> {
+    options: { onStarted?: (sessionId: string) => Promise<void> } = {},
+  ): Promise<{ sessionId: string; resultText?: string; error?: string }> {
     const dsh = this.#requireDsh()
     const employee = await this.#findEmployee(toEmployeeId)
     const workspaceId = employee.workspaceId ?? (await this.#requireStore().ensureRegistered(employee))
@@ -929,6 +946,8 @@ export class NodeAgent {
       ...(workspaceId === undefined ? { cwd: employee.workspacePath } : { workspaceId }),
       ...(employee.agentPreset === undefined ? {} : { agentPreset: employee.agentPreset }),
     })
+
+    if (options.onStarted !== undefined) await options.onStarted(created.sessionId)
 
     // 把"谁在请求你"如实告诉目标员工 —— 跨员工协作里，来源是必须可见的上下文
     const framed = [
@@ -946,6 +965,49 @@ export class NodeAgent {
       sessionId: created.sessionId,
       ...(outcome.text === undefined ? {} : { resultText: outcome.text }),
       ...(outcome.error === undefined ? {} : { error: outcome.error }),
+    }
+  }
+
+  async #invokeEmployeeAsync(
+    invokeId: string,
+    fromEmployeeId: string,
+    toEmployeeId: string,
+    task: string,
+  ): Promise<void> {
+    const hub = this.#requireHub()
+    try {
+      const outcome = await this.#invokeEmployee(invokeId, fromEmployeeId, toEmployeeId, task, {
+        onStarted: async (sessionId) => {
+          await hub.call(
+            'employee.invoke.settle',
+            { invokeId, status: 'running', sessionId },
+            { idempotencyKey: `invoke-start-${invokeId}` },
+          )
+        },
+      })
+      await hub.call(
+        'employee.invoke.settle',
+        {
+          invokeId,
+          status: outcome.error === undefined ? 'completed' : 'failed',
+          sessionId: outcome.sessionId,
+          ...(outcome.resultText === undefined ? {} : { resultText: outcome.resultText }),
+          ...(outcome.error === undefined ? {} : { error: outcome.error }),
+        },
+        { idempotencyKey: `invoke-finish-${invokeId}` },
+      )
+    } catch (error) {
+      await hub
+        .call(
+          'employee.invoke.settle',
+          {
+            invokeId,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          },
+          { idempotencyKey: `invoke-finish-${invokeId}` },
+        )
+        .catch(() => undefined)
     }
   }
 

@@ -46,6 +46,9 @@ var state = {
   reconnectTimer: null,
   /* 右栏（员工上下文）是否展开：按设备存 localStorage，见 applyAsideVisible */
   asideVisible: true,
+  /* 左栏（会话列表）是否展开：同上，见 applyPanelVisible。与 asideVisible **分开**——
+     只想收左栏的人不该顺手把右栏也收掉，所以两个方向各有各的存档与开关。 */
+  panelVisible: true,
   /* 岗位目录（Hub 侧共享数据）：控制台只做缓存，用于下拉候选与工位徽章 */
   positions: [],
   expectClose: false,

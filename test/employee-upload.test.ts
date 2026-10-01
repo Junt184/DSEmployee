@@ -47,6 +47,16 @@ async function firstEmployeeId(): Promise<string> {
 }
 
 describe('employee.files.upload → 落进员工工作区', () => {
+  it('二进制文件可以原样下载，并返回 MIME 类型', async () => {
+    const employeeId = await firstEmployeeId()
+    const bytes = Buffer.from([0x00, 0x01, 0xff, 0xfe])
+    await store.uploadFile(employeeId, '收件箱/report.pdf', bytes)
+    const downloaded = await store.downloadFile(employeeId, '收件箱/report.pdf')
+    assert.deepEqual(Uint8Array.from(downloaded.data), Uint8Array.from(bytes))
+    assert.equal(downloaded.mimeType, 'application/pdf')
+    assert.equal(downloaded.size, bytes.length)
+  })
+
   it('二进制原样落盘（不经 UTF-8 字符串往返）', async () => {
     const employeeId = await firstEmployeeId()
     // 含 0x00 / 0xFF 的字节序列：任何"当字符串处理"的实现都会把它改坏

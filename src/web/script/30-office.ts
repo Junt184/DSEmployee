@@ -650,7 +650,10 @@ function syncAsideToggle() {
   if (button === null) return
   button.setAttribute('aria-pressed', visible ? 'true' : 'false')
   button.classList.toggle('primary', visible)
-  button.title = visible ? '收起右侧的员工上下文' : '展开右侧的员工上下文'
+  /* 文案跟着状态走，理由见 markup.ts 那段：只写「上下文」时真实反馈是"找不到收侧栏的按钮"；
+     而收起之后还喊"折叠"就是假话（那一下点下去其实是展开）。 */
+  button.textContent = visible ? '上下文栏折叠' : '上下文栏展开'
+  button.title = visible ? '收起右侧的上下文栏' : '展开右侧的上下文栏'
 }
 
 function applyAsideVisible(visible) {
@@ -661,6 +664,42 @@ function applyAsideVisible(visible) {
 
 function toggleAside() {
   applyAsideVisible(currentAsideVisible() !== true)
+}
+
+/* ── 左栏（会话列表）折叠 ──
+ *
+ * 与右栏**完全同款**：JS 只切 #viewChat 上的一个类 + 写 localStorage，怎么收由 CSS 决定。
+ * 左右各一个开关（#btnPanel / #btnAside），互不影响，也各自记住各自的。
+ *
+ * 与右栏唯一的区别是**存在的档位**：常驻左栏只在 ≥1200px 有（中档与窄屏的左栏是顶栏
+ * 那个「会话」抽屉，走的是 .hidden 那一套状态，与本类的 panel-collapsed 不共用）。
+ * 所以这个按钮只在 ≥1200px 出现，那一档之外不给死键 —— 和右栏在窄屏藏按钮同一个理由。
+ *
+ * 状态同样**不**跟会话/员工走：它是"这块屏幕想不想常驻会话列表"，换员工不该把它变回来。 */
+function currentPanelVisible() {
+  return readLocal(LS.panel) !== 'hidden'
+}
+
+function syncPanelToggle() {
+  var chat = $('viewChat')
+  var visible = state.panelVisible === true
+  if (chat !== null) chat.classList.toggle('panel-collapsed', !visible)
+  var button = $('btnPanel')
+  if (button === null) return
+  button.setAttribute('aria-pressed', visible ? 'true' : 'false')
+  button.classList.toggle('primary', visible)
+  button.textContent = visible ? '会话栏折叠' : '会话栏展开'
+  button.title = visible ? '收起左侧的会话栏' : '展开左侧的会话栏'
+}
+
+function applyPanelVisible(visible) {
+  state.panelVisible = visible === true
+  writeLocal(LS.panel, state.panelVisible ? 'shown' : 'hidden')
+  syncPanelToggle()
+}
+
+function togglePanel() {
+  applyPanelVisible(currentPanelVisible() !== true)
 }
 
 /* ── 办公区（分组工位视图）── */
@@ -845,7 +884,8 @@ function buildDesk(employee, groupKey) {
     desk.appendChild(el('span', 'desk-unread', unreadCount > 99 ? '99+' : String(unreadCount)))
   }
 
-  /* 编辑：小编辑器就地展开，不进聊天也能改名、调整分组与初始提示词 */
+  /* 管理动作统一受 employee.manage 控制：只读控制台不应该先显示一个必然失败的编辑器。 */
+  var canManage = state.scopes.indexOf('employee.manage') >= 0
   var editButton = el('button', 'ghost desk-action', '编辑')
   var editor = el('div', 'desk-group-edit hidden')
   var nameInput = el('input', '')
@@ -864,11 +904,13 @@ function buildDesk(employee, groupKey) {
   introInput.value = typeof employee.intro === 'string' ? employee.intro : ''
   introInput.maxLength = 500
   var saveButton = el('button', 'primary', '保存')
+  var removeButton = el('button', 'ghost danger', '注销（保留工作区）')
   editor.appendChild(nameInput)
   editor.appendChild(positionPicker.root)
   editor.appendChild(groupPicker.root)
   editor.appendChild(introInput)
   editor.appendChild(saveButton)
+  editor.appendChild(removeButton)
   editButton.onclick = function (event) {
     event.stopPropagation()
     editor.classList.toggle('hidden')
@@ -912,6 +954,20 @@ function buildDesk(employee, groupKey) {
         reportRpcError('employee.update', error)
       })
   }
+  removeButton.onclick = function (event) {
+    event.stopPropagation()
+    if (!window.confirm('注销「' + String(employee.name || id) + '」？员工身份会从办公区移除，但工作区文件会保留。')) return
+    removeButton.disabled = true
+    rpc('employee.remove', { employeeId: id }, { idempotencyKey: randomId() })
+      .then(function () {
+        toast('已注销「' + String(employee.name || id) + '」，工作区已保留', 'ok')
+        return loadEmployees()
+      })
+      .catch(function (error) {
+        removeButton.disabled = false
+        reportRpcError('employee.remove', error)
+      })
+  }
   desk.appendChild(editor)
 
   /* 换头像：与「改分组」同款就地展开小面板（用户明确讨厌弹窗） */
@@ -941,11 +997,13 @@ function buildDesk(employee, groupKey) {
   }
   /* 操作行（网格第三行）：「编辑」「换头像」各占一格，触控目标 ≥44px；
      两个就地展开的小面板留在网格外，展开时把卡片往下撑，不挤压上半部 */
-  var actions = el('div', 'desk-actions')
-  actions.appendChild(editButton)
-  actions.appendChild(avatarButton)
-  top.appendChild(actions)
-  desk.appendChild(avatarEditor)
+  if (canManage) {
+    var actions = el('div', 'desk-actions')
+    actions.appendChild(editButton)
+    actions.appendChild(avatarButton)
+    top.appendChild(actions)
+    desk.appendChild(avatarEditor)
+  }
 
   desk.onclick = function () {
     /* 排序模式下点卡片是调序不是进聊天（防误触）；退出排序模式恢复 */

@@ -557,11 +557,8 @@ export type MailboxKind = 'session.prompt' | 'session.create' | 'session.cancel'
 /**
  * 离线邮箱的一条记录。
  *
- * ⚠️ **预留，未接线**：类型（含租约/重投所需的 `attempts` / `deliveredAtMs` /
- * `ackedAtMs`）与 `mailbox.json` 状态文件都在，但全仓库**没有任何入队、出队、
- * 重投实现**，`Hub.requestToNode` 在节点离线时是立即返回 `node-offline`。
- * 也就是说"节点掉线期间的请求排队等重连"**当前不成立** —— 读这个类型时别误以为
- * 它已经在工作。见 docs/03 §3.7 与 docs/05 §14。
+ * 当前实际接线的方法是 `session.prompt` 与异步形态的 `employee.invoke`；其它方法即使
+ * 类型列在这里，也仍然由调用方在节点在线时立即执行，不会被邮箱伪装成成功。
  */
 export interface MailboxItem {
   mailId: string

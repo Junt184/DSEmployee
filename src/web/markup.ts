@@ -487,8 +487,16 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
         <button id="btnNewSession" class="ghost">新会话</button>
         <!-- 本页皮肤（日间 / 作业室）：**只属于四宫格那一页**，其余页面这一页与从前一样 -->
         <button id="btnQuadSkin" class="ghost quad-skin-btn" aria-pressed="false">🖥️ 作业室</button>
-        <!-- 右栏折叠开关：窄屏（≤640px）没有右栏，按钮由 CSS 藏起来 -->
-        <button id="btnAside" class="ghost" aria-pressed="false" title="显示或收起右侧的员工上下文">上下文</button>
+        <!-- 左右两栏的折叠开关成对出现，各管各的、各记各的。
+             左栏只在 ≥1200px 常驻（中档与窄屏的左栏是上面那个「会话」抽屉），
+             所以 #btnPanel 也只在那一档出现；右栏窄屏根本摆不下。两个按钮都由 CSS
+             控可见性 —— 宁可不给，也不给一个按了没反应的死键。
+
+             ⚠️ 文案必须**说清它是个折叠开关**。原来只写「会话」「上下文」，与上面的
+             「会话」抽屉、与"切到某某页"长得一样，真实反馈是"找不到收侧栏的按钮"。
+             所以写成「…栏折叠」；收起后由 JS 改成「…栏展开」—— 动作变了还喊"折叠"就是假话。 -->
+        <button id="btnPanel" class="ghost" aria-pressed="false" title="收起左侧的会话栏">会话栏折叠</button>
+        <button id="btnAside" class="ghost" aria-pressed="false" title="收起右侧的上下文栏">上下文栏折叠</button>
       </div>
     </div>
     <div class="chat-sessions hidden" id="sessionPanel">
@@ -524,7 +532,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
       <div class="composer-inner">
         <button id="btnAttach" class="ghost chat-attach" aria-label="发文件" title="发文件给员工（图片还会直接让员工看见）">📎</button>
         <input id="fileInput" class="hidden" type="file" multiple>
-        <textarea id="promptInput" rows="1" placeholder="输入指令（Enter 发送，Shift+Enter 换行；也可拖入文件或粘贴截图）"></textarea>
+        <textarea id="promptInput" rows="1" placeholder="输入指令…"></textarea>
         <button id="btnCompact" class="ghost chat-compact" aria-label="压缩上下文" title="压缩上下文" disabled>压缩上下文</button>
         <button id="btnDistill" class="ghost chat-compact" aria-label="沉淀为技能" title="把本会话演示过的工作流程沉淀成 .dsh/skills 里的可复用技能（新会话生效）" disabled>沉淀为技能</button>
         <button id="btnSend" class="chat-send" aria-label="发送" title="发送">↑</button>

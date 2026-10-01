@@ -14,7 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test-isolation=none --test test/*.test.ts",
+    "test": "node --test --test-concurrency=1 test/*.test.ts",
     "test:built": "node --test dist/test/*.test.js"
   },
   "dependencies": {

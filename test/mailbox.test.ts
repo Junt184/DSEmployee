@@ -66,6 +66,21 @@ const NODE = 'node-a'
 const asHub = (fake: FakeHub): never => fake as unknown as never
 
 describe('离线邮箱：投递规则（假 Hub）', () => {
+  it('异步互调投递时加 async 标记，节点确认接收后出队', async () => {
+    const { hub, delivered } = makeFakeHub([{ ok: true, payload: { accepted: true } }])
+    await enqueueForNode(asHub(hub), NODE, 'employee.invoke', {
+      invokeId: 'inv-1',
+      fromEmployeeId: 'emp-a',
+      toEmployeeId: 'emp-b',
+      task: '做一件事',
+    })
+
+    const result = await flushMailbox(asHub(hub), NODE)
+    assert.equal(result.delivered, 1)
+    assert.equal((delivered[0]?.params as Record<string, unknown>)['async'], true)
+    assert.equal(mailboxItemsFor(hub.state() as never, NODE).length, 0)
+  })
+
   it('投递成功即出队，且按入队顺序', async () => {
     const { hub, delivered } = makeFakeHub([{ ok: true, payload: {} }, { ok: true, payload: {} }])
     await enqueueForNode(asHub(hub), NODE, 'session.prompt', { text: '第一条' })

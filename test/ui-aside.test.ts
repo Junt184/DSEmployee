@@ -147,7 +147,9 @@ describe('右栏折叠：各档都能收，窄屏不给按钮', () => {
       .map((entry) => ruleBody(entry.body, '#btnAside {'))
       .filter((body) => body !== undefined)
     assert.ok(shown.length > 0, '缺少 ≥641px 时显示按钮的规则')
-    assert.equal(declaration(String(shown[0]), 'display'), 'inline-flex')
+    /* inline-block 而不是 inline-flex：后者会顶掉 button 自带的"内容居中盒"、文字贴顶
+       （实测上下偏移 -6.5px）。详见 test/ui-panel.test.ts 的守卫。 */
+    assert.equal(declaration(String(shown[0]), 'display'), 'inline-block')
   })
 
   it('页面里 #btnAside 只出现一次（重复 id 会让 JS 只绑到第一个）', () => {
@@ -178,6 +180,7 @@ interface FakeElement {
   classes: Set<string>
   attrs: Record<string, string>
   title: string
+  textContent: string
   setAttribute(name: string, value: string): void
   classList: { toggle(name: string, on: boolean): void; contains(name: string): boolean }
 }
@@ -188,6 +191,7 @@ function makeElement(): FakeElement {
     classes: new Set<string>(),
     attrs: {},
     title: '',
+    textContent: '',
     setAttribute(name, value) {
       element.attrs[name] = value
     },
@@ -270,5 +274,32 @@ describe('折叠行为（跑交付脚本里的真源码）', () => {
     assert.equal(h.currentAsideVisible(), false)
     h.applyAsideVisible(h.currentAsideVisible())
     assert.equal(h.chat.classes.has('aside-collapsed'), true)
+  })
+
+  it('文案必须说清"这是个折叠栏的开关"，且跟着状态改口', () => {
+    /* 真实反馈：原来只写「上下文」，用户找了一圈说"没看到收侧边栏的按钮" ——
+       它长得像"切到上下文页"，而不像"把这一栏收起来"。 */
+    const html = renderControlUi({ hubId: 'h', hubName: 'n', scriptUrl: '/ui.js' })
+    assert.ok(
+      html.includes('id="btnAside" class="ghost" aria-pressed="false" title="收起右侧的上下文栏">上下文栏折叠</button>'),
+      '页面里的初始文案应当是「上下文栏折叠」（脚本没起来之前也该是对的）',
+    )
+    const h = makeAsideHarness()
+    h.applyAsideVisible(true)
+    assert.equal(h.button.textContent, '上下文栏折叠', '展开时写"折叠"——那一下点下去确实是收')
+    h.toggleAside()
+    assert.equal(h.button.textContent, '上下文栏展开', '收起后必须改口，否则按钮在说假话')
+    assert.equal(h.button.title, '展开右侧的上下文栏')
+    h.toggleAside()
+    assert.equal(h.button.textContent, '上下文栏折叠')
+  })
+
+  it('四宫格那两页不给死键：右栏恒隐藏，这个开关也必须藏起来', () => {
+    /* layout-quad / layout-quad-chat 里 #employeeAside 是 display:none !important，
+       按钮点下去不会有任何变化。秘书页早就藏了，这两页原来漏了。
+       规则写成"任何 width 都生效"（不放进媒体查询）：641px 以上按钮本来是显示的。 */
+    const body = ruleBody(CSS, '#viewChat[class*="layout-"] > .chat-top #btnAside {')
+    assert.ok(body !== undefined, '缺少"其他外壳里藏掉上下文开关"的规则')
+    assert.equal(declaration(body, 'display'), 'none')
   })
 })

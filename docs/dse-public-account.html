@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="DSEmployee 产品推荐：把 dsh 工作区组织成有岗位、有记忆、有边界、可跨设备调度的数字员工团队。">
+  <title>DSEmployee：把 Agent 变成真正的数字员工</title>
+  <style>
+    :root {
+      --ink: #18211f;
+      --muted: #66716f;
+      --paper: #f6f5f1;
+      --white: #fffefa;
+      --line: #d9ded8;
+      --green: #0d5c4d;
+      --green-dark: #0a4037;
+      --green-soft: #dceee8;
+      --orange: #ef6e46;
+      --orange-soft: #fff0e8;
+      --yellow: #f2c35d;
+      --blue: #2e6f9f;
+      --shadow: 0 16px 36px rgba(24, 33, 31, .10);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      overflow-x: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.78;
+      letter-spacing: 0;
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    .page { overflow: hidden; }
+    .article {
+      width: min(100% - 32px, 920px);
+      margin: 0 auto;
+      padding: 28px 0 80px;
+    }
+    .cover {
+      position: relative;
+      overflow: hidden;
+      min-height: 620px;
+      padding: 44px 48px 40px;
+      color: #f8faf5;
+      background: var(--green-dark);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      isolation: isolate;
+    }
+    .cover::before,
+    .cover::after {
+      position: absolute;
+      z-index: -1;
+      content: "";
+      border: 1px solid rgba(255,255,255,.16);
+      transform: rotate(12deg);
+    }
+    .cover::before { width: 430px; height: 430px; right: -170px; top: -150px; }
+    .cover::after { width: 260px; height: 260px; left: -150px; bottom: -170px; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 3px 10px;
+      color: var(--green-dark);
+      background: var(--yellow);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+    .cover-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(270px, .92fr);
+      align-items: end;
+      gap: 32px;
+      min-height: 530px;
+    }
+    .cover-copy { align-self: center; min-width: 0; max-width: 530px; }
+    .cover h1 {
+      max-width: 600px;
+      margin: 24px 0 18px;
+      font-size: clamp(38px, 6vw, 72px);
+      line-height: 1.08;
+      letter-spacing: -.04em;
+      font-weight: 850;
+    }
+    .cover h1 em { color: var(--yellow); font-style: normal; }
+    .cover-lede {
+      max-width: 540px;
+      margin: 0;
+      color: rgba(248,250,245,.78);
+      font-size: 18px;
+      line-height: 1.7;
+    }
+    .cover-note {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 32px;
+      color: rgba(248,250,245,.66);
+      font-size: 13px;
+    }
+    .cover-note::before { width: 34px; height: 1px; content: ""; background: var(--orange); }
+    .hero-office {
+      position: relative;
+      min-width: 0;
+      min-height: 370px;
+      max-width: 100%;
+      overflow: hidden;
+      background: #f4f4ed;
+      border: 8px solid rgba(255,255,255,.12);
+      border-radius: 8px;
+      box-shadow: 14px 18px 0 rgba(0,0,0,.10);
+    }
+    .hero-office::before {
+      position: absolute;
+      inset: 18px 18px auto;
+      height: 120px;
+      content: "";
+      background: #d9ece4;
+      border: 1px solid #b9d5cb;
+    }
+    .hero-office::after {
+      position: absolute;
+      right: 22px;
+      bottom: 22px;
+      width: 118px;
+      height: 13px;
+      content: "";
+      background: #c7a878;
+      border-radius: 2px;
+      box-shadow: -190px 8px 0 #c7a878;
+    }
+    .office-label {
+      position: absolute;
+      z-index: 2;
+      top: 34px;
+      left: 34px;
+      color: var(--green-dark);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .12em;
+    }
+    .employee-figure {
+      position: absolute;
+      z-index: 3;
+      right: 24px;
+      bottom: 28px;
+      width: 174px;
+      filter: drop-shadow(0 10px 0 rgba(13,92,77,.12));
+    }
+    .employee-figure img { width: 100%; height: 265px; object-fit: contain; object-position: bottom center; }
+    .employee-tag {
+      position: absolute;
+      left: 16px;
+      bottom: 26px;
+      width: 190px;
+      padding: 12px;
+      color: var(--ink);
+      background: rgba(255,254,250,.95);
+      border: 1px solid #cfd8d0;
+      border-radius: 6px;
+      box-shadow: 0 8px 18px rgba(24,33,31,.10);
+    }
+    .employee-tag strong { display: block; font-size: 17px; }
+    .employee-tag span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .signal {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 5px;
+      vertical-align: 1px;
+      background: #50a46c;
+      border-radius: 50%;
+    }
+
+    .article-head {
+      padding: 34px 14px 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .article-head strong { color: var(--ink); }
+    .toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 22px 0 50px;
+      padding: 14px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .toc a {
+      padding: 5px 10px;
+      color: var(--green);
+      text-decoration: none;
+      background: var(--green-soft);
+      border-radius: 5px;
+      font-size: 13px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    section { scroll-margin-top: 20px; }
+    .section-kicker {
+      display: inline-block;
+      margin-bottom: 8px;
+      color: var(--orange);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: .12em;
+    }
+    h2 {
+      margin: 0 0 18px;
+      font-size: clamp(28px, 4vw, 42px);
+      line-height: 1.22;
+      letter-spacing: -.03em;
+    }
+    h3 { margin: 0 0 8px; font-size: 21px; line-height: 1.35; }
+    p { margin: 0 0 18px; }
+    .lead {
+      margin-bottom: 30px;
+      color: #34403d;
+      font-size: 19px;
+      line-height: 1.8;
+    }
+    .section { padding: 12px 14px 66px; }
+    .quote {
+      margin: 28px 0 34px;
+      padding: 22px 24px;
+      color: var(--green-dark);
+      background: var(--green-soft);
+      border-left: 5px solid var(--green);
+      border-radius: 0 6px 6px 0;
+      font-size: 22px;
+      line-height: 1.6;
+      font-weight: 750;
+    }
+    .quote small { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; font-weight: 500; }
+    .split {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin: 30px 0;
+    }
+    .card {
+      padding: 22px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .card p:last-child { margin-bottom: 0; }
+    .card-label {
+      display: block;
+      margin-bottom: 14px;
+      color: var(--orange);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+    .card p { color: var(--muted); font-size: 15px; }
+    .employee-record {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      padding: 14px;
+      background: #f7f7f2;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .employee-record img { width: 72px; height: 72px; border-radius: 50%; }
+    .employee-record strong { display: block; font-size: 18px; }
+    .employee-record p { margin: 2px 0 0; font-size: 13px; }
+    .employee-state { color: #32815a; font-size: 12px; white-space: nowrap; }
+    .employee-state::before { content: "●"; margin-right: 5px; font-size: 10px; }
+    .workspace-lines {
+      display: grid;
+      gap: 8px;
+      margin-top: 18px;
+      padding: 14px;
+      background: #202c2a;
+      color: #d6e9df;
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .workspace-lines span:nth-child(2) { color: #f2c35d; }
+    .workspace-lines span:nth-child(3) { color: #f29b7c; }
+    .architecture {
+      margin: 30px 0;
+      padding: 22px;
+      background: #16221f;
+      border-radius: 8px;
+      color: #f4f6ef;
+    }
+    .architecture-title { color: var(--yellow); font-size: 13px; font-weight: 800; letter-spacing: .08em; }
+    .arch-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.25fr 1fr;
+      align-items: center;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .arch-box {
+      min-height: 112px;
+      padding: 16px;
+      background: #21342f;
+      border: 1px solid #3e5e54;
+      border-radius: 6px;
+    }
+    .arch-box hub { display: block; color: var(--yellow); font-size: 20px; font-weight: 800; }
+    .arch-box strong { display: block; margin-bottom: 5px; font-size: 16px; }
+    .arch-box small { display: block; color: #b4c7bf; font-size: 12px; line-height: 1.55; }
+    .arch-center { background: var(--green); border-color: #75b7a4; }
+    .arch-arrow { color: var(--orange); text-align: center; font-size: 25px; }
+    .device-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 18px;
+      color: #b4c7bf;
+      font-size: 12px;
+    }
+    .device {
+      padding: 7px 10px;
+      color: #f4f6ef;
+      background: #273d37;
+      border: 1px solid #46675b;
+      border-radius: 5px;
+    }
+    .device-arrow { color: var(--yellow); }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 28px;
+    }
+    .feature {
+      min-height: 196px;
+      padding: 18px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--green);
+      border-radius: 7px;
+    }
+    .feature:nth-child(2) { border-top-color: var(--orange); }
+    .feature:nth-child(3) { border-top-color: var(--blue); }
+    .feature:nth-child(4) { border-top-color: var(--yellow); }
+    .feature:nth-child(5) { border-top-color: #8a6aad; }
+    .feature:nth-child(6) { border-top-color: #5d9b87; }
+    .feature-no { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .feature h3 { margin-top: 8px; font-size: 19px; }
+    .feature p { color: var(--muted); font-size: 14px; line-height: 1.7; }
+    .mock-console {
+      margin: 28px 0 36px;
+      overflow: hidden;
+      background: #fdfdf8;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(24,33,31,.08);
+    }
+    .mock-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #e7eee8;
+      border-bottom: 1px solid var(--line);
+      color: var(--green-dark);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .mock-tabs { display: flex; gap: 7px; flex-wrap: wrap; }
+    .mock-tabs span { padding: 4px 8px; color: var(--muted); background: rgba(255,255,255,.65); border-radius: 4px; font-weight: 600; }
+    .mock-tabs span:first-child { color: var(--green-dark); background: #fffefa; }
+    .mock-body { padding: 18px; }
+    .mock-title { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 14px; }
+    .mock-title strong { font-size: 18px; }
+    .mock-title span { color: var(--muted); font-size: 12px; }
+    .desk-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .desk {
+      position: relative;
+      min-height: 132px;
+      padding: 13px;
+      background: #f4f4ed;
+      border: 1px solid #d7ded6;
+      border-radius: 6px;
+    }
+    .desk img { width: 58px; height: 58px; margin-bottom: 8px; border-radius: 50%; }
+    .desk strong { display: block; font-size: 15px; }
+    .desk small { display: block; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .desk .desk-light { position: absolute; top: 13px; right: 13px; width: 7px; height: 7px; background: #4da566; border-radius: 50%; }
+    .desk.busy .desk-light { background: var(--orange); box-shadow: 0 0 0 4px var(--orange-soft); }
+    .console-caption { padding: 0 18px 16px; color: var(--muted); font-size: 12px; }
+    .security-list { display: grid; gap: 10px; margin: 22px 0 0; padding: 0; list-style: none; }
+    .security-list li {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      padding: 13px 15px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .security-list b { color: var(--green); }
+    .security-list p { margin: 3px 0 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+    .check { color: var(--orange); font-size: 18px; font-weight: 900; line-height: 1.2; }
+    .caveat {
+      margin-top: 20px;
+      padding: 16px 18px;
+      color: #684c20;
+      background: #fff6dd;
+      border: 1px solid #ecd28f;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .use-cases { margin-top: 24px; }
+    .use-case {
+      display: grid;
+      grid-template-columns: 106px minmax(0, 1fr);
+      gap: 18px;
+      padding: 20px 0;
+      border-top: 1px solid var(--line);
+    }
+    .use-case:first-child { border-top: 0; }
+    .use-case-label { color: var(--orange); font-weight: 850; }
+    .use-case p { margin-bottom: 0; color: var(--muted); }
+    .closing {
+      margin: 8px 0 32px;
+      padding: 28px;
+      color: #f8faf5;
+      background: var(--green-dark);
+      border-radius: 8px;
+    }
+    .closing h2 { color: #f8faf5; }
+    .closing p { color: rgba(248,250,245,.75); }
+    .closing strong { color: var(--yellow); }
+    .cta {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 10px 15px;
+      color: var(--green-dark);
+      background: var(--yellow);
+      border-radius: 5px;
+      font-size: 14px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .footer {
+      padding: 16px 14px 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+      text-align: center;
+    }
+    code {
+      padding: 2px 5px;
+      color: var(--green-dark);
+      background: #e8efe9;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: .9em;
+    }
+    @media (max-width: 760px) {
+      .article { width: min(100% - 20px, 680px); padding-top: 10px; }
+      .cover { min-height: auto; padding: 30px 22px 24px; }
+      .cover-grid { grid-template-columns: 1fr; min-height: 0; gap: 22px; }
+      .cover h1 { margin-top: 20px; font-size: clamp(40px, 13vw, 58px); }
+      .cover-lede { font-size: 16px; }
+      .hero-office { min-height: 300px; }
+      .employee-figure { right: 4px; bottom: 18px; width: 140px; }
+      .employee-figure img { height: 220px; }
+      .employee-tag { left: 12px; bottom: 18px; width: 165px; }
+      .section { padding-right: 4px; padding-left: 4px; }
+      .split, .arch-grid { grid-template-columns: 1fr; }
+      .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .arch-arrow { transform: rotate(90deg); }
+      .desk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 460px) {
+      .cover { border-radius: 0; margin-inline: -10px; }
+      .article-head { padding-inline: 4px; }
+      .toc { margin-bottom: 36px; }
+      .quote { font-size: 19px; padding: 18px; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .employee-record { grid-template-columns: 56px minmax(0, 1fr); }
+      .employee-record img { width: 56px; height: 56px; }
+      .employee-state { grid-column: 2; }
+      .use-case { grid-template-columns: 1fr; gap: 4px; }
+      .mock-top { align-items: flex-start; flex-direction: column; }
+      .desk-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <main class="article">
+      <header class="cover" aria-label="DSEmployee 产品推荐封面">
+        <div class="cover-grid">
+          <div class="cover-copy">
+            <span class="eyebrow">DSEMPLOYEE · 产品推荐</span>
+            <h1>让 Agent<br>成为<em>数字员工</em></h1>
+            <p class="cover-lede">不是再造一个什么都能聊的智能体，而是把每一项工作，交给一个有岗位、有记忆、有边界、能长期在岗的人。</p>
+            <div class="cover-note">基于 DeepSeek Harness（dsh）的数字员工系统</div>
+          </div>
+          <div class="hero-office" aria-label="数字员工在办公区工作的视觉示意">
+            <span class="office-label">DIGITAL OFFICE / 01</span>
+            <div class="employee-figure">
+              <img src="../src/web/assets/secretary/stage-standby-still.webp" alt="DSEmployee 秘书立绘">
+            </div>
+            <div class="employee-tag">
+              <strong><span class="signal"></span>小艾</strong>
+              <span>运营与数据核对</span>
+              <span>在线 · 等待下一项任务</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="article-head">
+        <strong>推荐语</strong>　有些工具让你更快地调用模型，DSEmployee 更进一步：它试着把“会做事的 Agent”变成“可以长期交付的同事”。
+      </div>
+
+      <nav class="toc" aria-label="文章目录">
+        <a href="#problem">为什么需要数字员工</a>
+        <a href="#model">它真正改变了什么</a>
+        <a href="#network">一台 Hub，多台终端</a>
+        <a href="#experience">像在管理一家公司</a>
+        <a href="#security">安全不是一句口号</a>
+        <a href="#who">适合谁</a>
+      </nav>
+
+      <section class="section" id="problem">
+        <span class="section-kicker">01 / 先说一个真实的痛点</span>
+        <h2>Agent 很强，为什么还是像“临时工”？</h2>
+        <p class="lead">今天的 Claude Code、DeepSeek Harness、Codex 以及各种 Work 产品，已经足够强大。它们能读代码、改文件、跑命令、调用工具，甚至可以自己完成一整段复杂工作。</p>
+        <p>但它们往往有一个共同的前提：<strong>一份工作区，一份上下文，一份记忆。</strong>当你换了一台电脑，换了一个仓库，换了一个工作目录，原本好不容易教会 Agent 的工作习惯、交付格式、判断边界，常常也跟着散掉了。</p>
+        <p>于是我们会不断重复同一件事：重新解释背景，重新粘贴规则，重新告诉它“这类任务应该怎么做”。Agent 本身没有变笨，变的是它没有一个稳定的“岗位”。</p>
+        <div class="quote">真正稀缺的不是一次回答，而是一个能反复接手同类工作的角色。<small>这也是 DSEmployee 最值得推荐的出发点。</small></div>
+      </section>
+
+      <section class="section" id="model">
+        <span class="section-kicker">02 / DSEmployee 的核心判断</span>
+        <h2>一个数字员工，不是一段对话，而是一个工作区</h2>
+        <p class="lead">DSEmployee 没有试图把所有能力塞进一个“万能智能体”。它选择了一种更接近真实组织的方式：给每一类工作分配一个专职员工。</p>
+        <div class="split">
+          <div class="card">
+            <span class="card-label">从“会话”变成“岗位”</span>
+            <h3>员工身份跟着目录走</h3>
+            <p>一个员工对应一个 dsh 工作区。岗位说明、知识库、专属技能、模型端点、会话与头像，都围绕这个工作区组织。把目录带到另一台机器，员工还是原来的员工。</p>
+            <div class="workspace-lines" aria-label="数字员工工作区组成">
+              <span>employee.json　身份与元数据</span>
+              <span>AGENTS.md　　　岗位说明与知识库</span>
+              <span>.dsh/skills/　　专属工作方法</span>
+              <span>.dsemployee/　　头像与模型配置</span>
+            </div>
+          </div>
+          <div class="card">
+            <span class="card-label">从“万能”变成“专职”</span>
+            <h3>一个人，也可以有自己的部门</h3>
+            <p>你可以有一个负责周报的小艾，一个负责资料检索的阿澈，一个负责代码维护的工程师，一个负责每日汇报的秘书。每个人只承担一类责任，提示词、技能和交付方式都能沉淀下来。</p>
+            <div class="employee-record">
+              <img src="../avatars/female-01-小艾.png" alt="小艾头像">
+              <div>
+                <strong>小艾</strong>
+                <p>运营组 · 周报整理、数据核对</p>
+              </div>
+              <span class="employee-state">专职在岗</span>
+            </div>
+          </div>
+        </div>
+        <p>这件事的价值并不只是“看起来像公司”。当角色边界被固定下来，Agent 才有机会从一次性工具，变成可以被信任、被复用、被协作的生产力单元。对一人公司来说，这种差别很大：你不再是每次都亲自带一个实习生，而是在慢慢搭建自己的团队。</p>
+      </section>
+
+      <section class="section" id="network">
+        <span class="section-kicker">03 / 把工作放到该在的地方</span>
+        <h2>一台 Hub，多个节点：随时做与随地做可以分开</h2>
+        <p class="lead">很多任务并不需要等你坐到电脑前才开始。资料整理、定时汇报、后台巡检、周期性分析，可以放在家里的电脑或服务器上长期运行；需要你随时介入的任务，则可以放在手边的笔记本上。</p>
+        <div class="architecture" aria-label="Hub 与多终端节点架构示意">
+          <div class="architecture-title">ONE HUB / MANY NODES</div>
+          <div class="arch-grid">
+            <div class="arch-box">
+              <strong>授权设备</strong>
+              <small>手机、电脑浏览器、CLI、脚本<br>从同一个入口发起任务</small>
+            </div>
+            <div class="arch-arrow">→</div>
+            <div class="arch-box arch-center">
+              <hub>Hub</hub>
+              <small>统一认证、员工目录、权限审批、消息中转与离线邮箱</small>
+            </div>
+            <div class="arch-arrow">→</div>
+            <div class="arch-box">
+              <strong>终端节点</strong>
+              <small>家里 Mac、公司 PC、云服务器<br>各自承载本机 dsh 与员工</small>
+            </div>
+          </div>
+          <div class="device-strip">
+            <span class="device">家里 / 服务器：定时、后台、无人值守</span>
+            <span class="device-arrow">＋</span>
+            <span class="device">随身笔记本：随地查看、干预、接手</span>
+          </div>
+        </div>
+        <p>这套架构的好处，是把“员工在哪里运行”和“你从哪里指挥”解耦。Hub 不需要反向打穿每台终端，终端主动出站连接 Hub；员工继续在本机工作区里跑，文件和工具仍然留在它真正需要的地方。</p>
+        <p>而控制台本身就是一个 PWA：手机浏览器可以添加到主屏幕，打开后像一个独立应用。你可以在通勤路上看状态、处理审批、给员工发下一步指令，也可以在电脑上进入完整的办公区继续工作。</p>
+      </section>
+
+      <section class="section" id="experience">
+        <span class="section-kicker">04 / 好用之外，还要让人想用</span>
+        <h2>它把“管理 Agent”做成了一个有现场感的办公区</h2>
+        <p class="lead">如果所有 Agent 都只是一个输入框，长期使用很容易变成一堆互相混淆的会话。DSEmployee 的界面选择了另一条路：让每个员工有一个工位，让状态变得一眼可见。</p>
+        <div class="mock-console" aria-label="DSEmployee 控制台界面示意">
+          <div class="mock-top">
+            <span>数字员工控制台 · Hub</span>
+            <div class="mock-tabs"><span>办公区</span><span>全景</span><span>审批 2</span><span>定时</span><span>体检</span><span>员工配置</span></div>
+          </div>
+          <div class="mock-body">
+            <div class="mock-title"><strong>运营组</strong><span>2 位员工 · 1 人忙碌 · 1 人在线</span></div>
+            <div class="desk-grid">
+              <div class="desk busy">
+                <span class="desk-light"></span>
+                <img src="../avatars/female-01-小艾.png" alt="小艾头像">
+                <strong>小艾</strong>
+                <small>正在核对本周数据</small>
+              </div>
+              <div class="desk">
+                <span class="desk-light"></span>
+                <img src="../avatars/female-07-知衡.png" alt="知衡头像">
+                <strong>知衡</strong>
+                <small>在线，等待任务</small>
+              </div>
+              <div class="desk">
+                <span class="desk-light"></span>
+                <img src="../avatars/male-04-小张.png" alt="小张头像">
+                <strong>小张</strong>
+                <small>代码维护 · 公司 Mac</small>
+              </div>
+            </div>
+          </div>
+          <div class="console-caption">办公区负责每天使用；全景负责一眼看见谁在工作；审批、定时、设备和体检，把长期运行中真正需要处理的事情集中起来。</div>
+        </div>
+        <div class="feature-grid">
+          <div class="feature"><span class="feature-no">01</span><h3>头像可以自己捏</h3><p>默认有像素风头像，也可以上传自己的 PNG、WebP、GIF 或 JPEG，让员工从“一个 ID”变成团队里有名字、有性格的同事。</p></div>
+          <div class="feature"><span class="feature-no">02</span><h3>状态不是黑盒</h3><p>办公区、全景页、忙碌徽章、未读角标和实时输出，让你知道员工是在工作、等待、离线，还是卡在需要你处理的步骤。</p></div>
+          <div class="feature"><span class="feature-no">03</span><h3>定时任务</h3><p>把周期性工作交给员工，按间隔自动执行。下一次运行、启用状态和离线情况，都能在同一个工作台查看。</p></div>
+          <div class="feature"><span class="feature-no">04</span><h3>员工可以互相协作</h3><p>员工之间支持受控互调。需要确认的动作进入审批中心，决定权仍然在你手里，而不是藏在一段不可见的自动化里。</p></div>
+          <div class="feature"><span class="feature-no">05</span><h3>秘书页与工作台</h3><p>部分岗位可以有更专属的界面：立绘、对话、目标、下一步和最近结论放在一起，适合长期陪伴式的工作流程。</p></div>
+          <div class="feature"><span class="feature-no">06</span><h3>体检视图</h3><p>控制台脚本、节点代码、工作区锚点等“不会报错但会变坏”的问题，会被主动摆出来，减少隐性失效。</p></div>
+        </div>
+      </section>
+
+      <section class="section" id="security">
+        <span class="section-kicker">05 / 真正长期运行，安全必须可见</span>
+        <h2>安全不是“我们很安全”，而是一组明确的闸门</h2>
+        <p class="lead">数字员工一旦能够读文件、执行命令、跨设备工作，安全就不能只依赖用户“自己小心”。DSEmployee 的思路是把授权、边界和异常处理做成产品的一部分。</p>
+        <ul class="security-list">
+          <li><span class="check">✓</span><div><b>设备先授权，再进入系统</b><p>浏览器生成 Ed25519 设备身份，新设备通过一次性配对码或已授权设备审批；不用时可以关闭“新设备注册”，开关默认自动收回。</p></div></li>
+          <li><span class="check">✓</span><div><b>权限按设备和方法收敛</b><p>设备令牌只保存摘要，方法按 scope 校验；员工之间互调有 ACL，命中需要确认的规则就进入审批中心。</p></div></li>
+          <li><span class="check">✓</span><div><b>dsh 不直接暴露到网络</b><p>dsh 只监听回环地址，由同机节点代理驱动；外部访问统一收敛到 Hub，减少把本地 Agent API 暴露出去的风险。</p></div></li>
+          <li><span class="check">✓</span><div><b>凭据留在应该留的地方</b><p>员工级 LLM API Key 只在终端节点本地落盘，接口只回传掩码；来自网络的工作区路径也会经过边界检查。</p></div></li>
+          <li><span class="check">✓</span><div><b>离线与重复执行有处理策略</b><p>节点离线时，对话指令可以进入 Hub 邮箱等待重连；带副作用的方法要求幂等键，避免网络重试造成重复动作。</p></div></li>
+        </ul>
+        <div class="caveat"><strong>部署提醒：</strong>Hub 负责认证，但不替你加密传输。部署到局域网、云服务器或公网时，应使用 Tailscale、WireGuard 或 TLS 反向代理；这不是可选的“高级配置”，而是生产部署的基本前提。</div>
+      </section>
+
+      <section class="section" id="who">
+        <span class="section-kicker">06 / 它最适合哪些人</span>
+        <h2>如果你已经开始想“给这件事配一个人”，它就值得试试</h2>
+        <div class="use-cases">
+          <div class="use-case"><div class="use-case-label">一人公司</div><p>你不缺一个聊天机器人，你缺的是几个能各自负责一摊工作的同事：运营、研究、内容、代码、秘书。DSEmployee 让这些岗位可以被命名、被复用、被调度。</p></div>
+          <div class="use-case"><div class="use-case-label">重度开发者</div><p>你已经在使用 Claude Code、Codex 或 dsh，只是厌倦了反复搬运上下文。把常用工作流沉淀成独立员工之后，换仓库、换电脑、换任务，不必从零教起。</p></div>
+          <div class="use-case"><div class="use-case-label">家庭服务器 / 小团队</div><p>有一台常开的 Mac、Windows 主机或云服务器，希望让周期任务持续跑；又希望在手机或笔记本上随时接管。Hub + 节点正好把这两种需求分开。</p></div>
+          <div class="use-case"><div class="use-case-label">在意边界的人</div><p>你希望自动化能做事，但不希望任何一个 Agent 无限制地调用另一个 Agent、访问整台机器或把凭据散出去。DSEmployee 的价值，在于它把“允许什么”变成可以审核的规则。</p></div>
+        </div>
+      </section>
+
+      <section class="closing">
+        <span class="section-kicker">最后</span>
+        <h2>从“我有几个 Agent”，走向“我有一家公司”</h2>
+        <p>我很喜欢 DSEmployee 的一点，是它没有把重点放在“再做一个更全能的智能体”。它更像是在回答另一个问题：<strong>当 Agent 越来越能干，我们怎样让它们稳定地成为团队的一部分？</strong></p>
+        <p>答案不是让一个智能体记住所有事情，而是让不同的数字员工各自拥有自己的岗位、工作区、技能、设备和边界。它们可以在家里的机器上持续工作，也可以被你从手机上随时叫醒；可以有自己的头像和工位，也可以在需要时停下来等你审批。</p>
+        <p>这就是 DSEmployee 想做的事：把 AI 从一次性对话，推向长期协作；把单机 Agent，推向一个真正可管理的数字员工团队。</p>
+        <a class="cta" href="../README.md">查看项目说明与快速开始</a>
+      </section>
+
+      <footer class="footer">
+        本文为 DSEmployee 产品推荐稿。产品基于 DeepSeek Harness（dsh）构建；文中架构与功能描述以当前仓库实现为准。<br>
+        建议正式发布到公众号时，将本文中的本地素材替换为产品截图，并为“快速开始”按钮配置项目地址。
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

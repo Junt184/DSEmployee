@@ -73,6 +73,31 @@ function asideRow(box, key, value) {
   return row
 }
 
+function downloadEmployeeFile(employeeId, filePath) {
+  rpc('employee.files.download', { employeeId: employeeId, path: filePath })
+    .then(function (payload) {
+      var data = payload !== null && typeof payload === 'object' ? String(payload.dataBase64 || '') : ''
+      if (data === '') throw new Error('服务端没有返回文件内容')
+      var raw = atob(data)
+      var bytes = new Uint8Array(raw.length)
+      for (var i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i)
+      var mime = payload !== null && typeof payload === 'object' ? String(payload.mimeType || 'application/octet-stream') : 'application/octet-stream'
+      var blob = new Blob([bytes], { type: mime })
+      var url = URL.createObjectURL(blob)
+      var anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = String(filePath).split('/').pop() || 'download'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
+      toast('已开始下载：' + String(filePath), 'ok')
+    })
+    .catch(function (error) {
+      reportRpcError('employee.files.download', error)
+    })
+}
+
 /**
  * 未决审批块（**容器无关**）：右栏与四宫格右上格共用这一份。
  *
@@ -367,7 +392,18 @@ function renderEmployeeAside() {
       var entryPath = String(entry.path || '')
       if (entryPath === '' || entryPath.indexOf('.dsemployee') === 0 || entryPath.indexOf('.dsh') === 0) continue
       var isDir = entry.type === 'dir'
-      asideRow(fileBox, entryPath + (isDir ? '/' : ''), isDir ? '' : formatBytes(Number(entry.size) || 0))
+      var fileRow = asideRow(fileBox, entryPath + (isDir ? '/' : ''), isDir ? '' : formatBytes(Number(entry.size) || 0))
+      if (!isDir) {
+        var download = el('button', 'ghost aside-file-download', '下载')
+        download.title = '下载这个工作区文件'
+        download.onclick = (function (pathToDownload) {
+          return function (event) {
+            event.stopPropagation()
+            downloadEmployeeFile(employeeId, pathToDownload)
+          }
+        })(entryPath)
+        fileRow.appendChild(download)
+      }
       shown += 1
     }
     if (shown === 0) fileBox.appendChild(el('div', 'aside-note', '工作区里还没有产出文件'))

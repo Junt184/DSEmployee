@@ -97,8 +97,10 @@ describe('皮肤与主题：令牌完整性', () => {
 
   it('作业室的外观条条锁在 .skin-neon 子树里（漏一条就会改到别的页面）', () => {
     const css = styleSheet()
-    /* 从"形状与质感"那一段的第一条规则切到文件末尾（不能按注释里的标题找 ——
-       注释已经被 styleSheet() 删了，按注释找会静默变成空串，测试就白测了）。 */
+    /* 从"形状与质感"那一段的第一条规则开始扫描（不能按注释里的标题找 ——
+       注释已经被 styleSheet() 删了，按注释找会静默变成空串，测试就白测了）。
+       皮肤段后面可以继续追加其他页面的 CSS，所以只取连续的 .skin-neon 规则，
+       不把后续页面的合法样式误当成皮肤泄漏。 */
     const skinAt = css.indexOf('.skin-neon {')
     const section = css.slice(css.indexOf('.skin-neon {', skinAt + 1))
     /* 逗号分组要**逐个**看：只看每组最后一行的话，前面那几条泄漏了也查不出来 */
@@ -106,8 +108,10 @@ describe('皮肤与主题：令牌完整性', () => {
       .flatMap((match) => (match[1] as string).split(','))
       .map((selector) => selector.trim().split('\n').pop()?.trim() ?? '')
       .filter((selector) => selector !== '' && !selector.startsWith('@'))
-    assert.ok(selectors.length >= 8, '作业室那段选择器太少，解析可能失效：' + String(selectors.length))
-    for (const selector of selectors) {
+    const firstUnscoped = selectors.findIndex((selector) => !selector.includes('.skin-neon'))
+    const skinSelectors = firstUnscoped < 0 ? selectors : selectors.slice(0, firstUnscoped)
+    assert.ok(skinSelectors.length >= 8, '作业室那段选择器太少，解析可能失效：' + String(skinSelectors.length))
+    for (const selector of skinSelectors) {
       assert.ok(selector.includes('.skin-neon'), `这条没锁在 .skin-neon 子树里，会改到别的页面：${selector}`)
     }
     /* 扫描线不能挡点击 —— 挡了整页就点不动了 */

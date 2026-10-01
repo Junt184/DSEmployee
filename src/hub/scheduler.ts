@@ -21,6 +21,7 @@
 
 import { newId } from '../util/fsx.ts'
 import { QUEUEABLE_METHODS, enqueueForNode, mailboxItemsFor } from './mailbox.ts'
+import { sendToAll } from './push.ts'
 import type { Hub } from './server.ts'
 import type { HubState } from './store.ts'
 import type { ScheduleJob, ScheduleRun } from './types.ts'
@@ -179,6 +180,23 @@ export async function dispatchJob(hub: Hub, job: ScheduleJob): Promise<DispatchO
     job.sessionId = sessionId
   }
 
+  /* 不把周期任务堆进同一个正在运行的会话：间隔只代表"最早可以再问一次"，
+     不代表允许并发回合。否则 1 分钟任务遇到 5 分钟的工具调用，会在同一会话里
+     叠出一串无法区分的指令。查不到状态时保持原语义继续派发，不能把 dsh 版本差异
+     误判成任务失败。 */
+  if (online) {
+    const listed = await hub.requestToNode(employee.nodeId, 'session.list', { employeeId: employee.id })
+    if (listed.ok === true) {
+      const sessions = Array.isArray((listed.payload as { sessions?: unknown })?.sessions)
+        ? ((listed.payload as { sessions: Array<Record<string, unknown>> }).sessions ?? [])
+        : []
+      const current = sessions.find((item) => String(item['sessionId'] ?? item['id'] ?? '') === sessionId)
+      if (current?.['running'] === true) {
+        return { status: 'skipped', sessionId, detail: `→ ${employee.name}（上一轮仍在运行，本轮跳过）` }
+      }
+    }
+  }
+
   const params = { employeeId: employee.id, sessionId, mode: 'queue', text: job.prompt }
 
   /* 机器不在线：走 **Hub 的离线邮箱**，而不是直接调 requestToNode。
@@ -288,6 +306,13 @@ export async function runJob(
   })
   if (job.enabled !== true) {
     hub.broadcastToScope('employee.read', 'job.changed', { jobId: job.jobId, enabled: false })
+  }
+  if (run.status === 'failed' || job.enabled !== true) {
+    void sendToAll(hub, {
+      title: job.enabled === true ? `定时任务失败：${job.name}` : `定时任务已停用：${job.name}`,
+      body: run.error ?? job.disabledReason ?? run.detail ?? '请打开控制台查看最近一次执行记录',
+      tag: `job-${job.jobId}`,
+    }).catch(() => undefined)
   }
   return run
 }

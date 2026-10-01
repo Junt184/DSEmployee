@@ -1522,8 +1522,19 @@ details.card > summary + * { margin-top: 8px; }
   }
   /* 中间列放宽一点（760 → 860），与输入区同步，保持左右对齐 */
   #viewChat .msg, #viewChat .composer-inner { max-width: 860px; }
-  /* 折叠时把右栏所在轨道压成 0 —— 保留 areas 定义，只收轨道最省事 */
+  /* 折叠时把所在轨道压成 0 —— 保留 areas 定义，只收轨道最省事 */
   #viewChat.aside-collapsed { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) 0; }
+  /* 只收左栏：右栏轨道原样保留（220–260 → 0），中间列吃满省下的宽度 */
+  #viewChat:not([class*="layout-"]).panel-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr) minmax(280px, 340px);
+  }
+  /* 两栏都收。这条必须单独写：grid-template-columns 是同一条属性，三条规则谁生效
+     只看 specificity —— 本选择器是 1 个 id + 3 个类，#viewChat.aside-collapsed 只有
+     1 个 id + 1 个类，所以"都收"这条稳定胜出，与书写顺序无关。
+     （漏掉这条的后果很容易看漏：两个都收时左栏轨道会留在 220–260px 的空档。） */
+  #viewChat:not([class*="layout-"]).panel-collapsed.aside-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
 }
 
 /* ── 中档（641–1199px 且高度 ≥500px）：对话 + 右栏 ──
@@ -1567,17 +1578,47 @@ details.card > summary + * { margin-top: 8px; }
   #viewChat.aside-collapsed { grid-template-columns: minmax(0, 1fr) 0; }
 }
 
-/* ── 右栏折叠（各档通用）──
+/* ── 左右两栏折叠（各档通用）──
  *
  * 折叠状态是 #viewChat 上的一个类（JS 只切类 + 存 localStorage，偏好按设备走 ——
- * "我这块屏幕要不要常驻右栏"是设备属性，不是办公室的共享事实）。
+ * "我这块屏幕要不要常驻这一栏"是设备属性，不是办公室的共享事实）。
  * 窄屏（≤640px）本来就摆不下右栏，所以折叠按钮也藏起来：不给一个按了没用/没意义的按钮。 */
 #viewChat.aside-collapsed > #employeeAside { display: none !important; }
 #btnAside { display: none; }
 /* 与中档两栏同一个前提：够宽**且**够高。横屏手机（844×390）不给按钮 ——
    给了也只会把对话挤窄，还会让人以为右栏本该在那儿。 */
 @media (min-width: 641px) and (min-height: 500px) {
-  #btnAside { display: inline-flex; }
+  /* 用 inline-block，**不能用 inline-flex**。给 button 设 flex 会把浏览器自带的
+     "内容居中盒"换掉（button 的内容默认装在一个 align-items:center 的匿名盒里），
+     于是文字贴到顶部。实测（1440px，量的文字行盒中心与按钮盒中心的差）：
+       inline-flex → 文字比中心高 6.5px      inline-block → 差 0.34px（与「新会话」一致）
+     同一行的按钮本来就是 inline-block（在 flex 行里被块化成 block），跟着它走最稳。 */
+  #btnAside { display: inline-block; }
+}
+/* 四宫格那两页（layout-quad / layout-quad-chat）的右栏是**恒隐藏**的
+   （各自写着 > #employeeAside { display: none !important }），「上下文栏折叠」在那里
+   点了不会有任何变化 —— 秘书页早按"不给死键"把按钮藏了，这两页是漏的，一并补上。 */
+#viewChat[class*="layout-"] > .chat-top #btnAside { display: none; }
+/* 左栏开关存在的档位与"常驻左栏"完全一致：≥1200px。差一档都不给 ——
+   中档/窄屏的左栏是顶栏那个「会话」抽屉（它自己就有按钮），再来一个同名按钮
+   只会让人以为"点了会另开一个东西"。 */
+#btnPanel { display: none; }
+@media (min-width: 1200px) {
+  #btnPanel { display: inline-block; } /* 同 #btnAside：这里用 flex 会让文字贴顶 */
+  /* 别的外壳里左栏不是常驻列（秘书页/四宫格另有排法），这一档也不给死键 */
+  #viewChat[class*="layout-"] > .chat-top #btnPanel { display: none; }
+  /* ── 左栏折叠：藏掉那一列 ──
+   *
+   * 必须**排除别的外壳**（秘书页 / 四宫格）：那几页把 #sessionPanel 重新摆成一条
+   * 独立的下拉带，靠 .hidden 开关；要是 panel-collapsed 在那里也生效，带子会被永久
+   * 藏掉、而「会话」按钮还在（死键）。用 [class*="layout-"] 一次排除全部外壳，而不是
+   * 逐个列举 —— 以后再加一个 layout-* 外壳也不会漏（漏了就是死键）。
+   * （aside-collapsed 不需要这层排除：那几个外壳里 #employeeAside 本来就是隐藏的。）
+   *
+   * 也必须**待在 ≥1200px 的媒体查询里**：中档与窄屏的 #sessionPanel 是顶栏那个
+   * 「会话」抽屉，同样靠 .hidden 开关；若在窄屏也生效，抽屉就再也打不开了 ——
+   * 一个"大屏上收了左栏"的存档会把手机上的会话列表永久锁死。 */
+  #viewChat:not([class*="layout-"]).panel-collapsed > #sessionPanel { display: none !important; }
 }
 
 /* ══════════ 秘书页外壳（岗位 layout="secretary"）══════════
@@ -1648,7 +1689,7 @@ details.card > summary + * { margin-top: 8px; }
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
-#viewChat.layout-secretary > .chat-top #btnChatSessions { display: inline-flex; }
+#viewChat.layout-secretary > .chat-top #btnChatSessions { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
 #viewChat.layout-secretary > .chat-top #btnChatSessions::after {
   content: '⌄';
   margin-left: 5px;
@@ -2043,6 +2084,7 @@ details.card > summary + * { margin-top: 8px; }
 .chat-aside .aside-row, .quad-cell .aside-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
 .chat-aside .aside-row .k, .quad-cell .aside-row .k { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-aside .aside-row .v, .quad-cell .aside-row .v { flex: 0 0 auto; color: var(--muted); }
+.chat-aside .aside-file-download, .quad-cell .aside-file-download { flex: 0 0 auto; min-height: 28px; padding: 2px 7px; font-size: 11px; }
 .chat-aside .aside-note, .quad-cell .aside-note { color: var(--muted); line-height: 1.5; }
 .chat-aside .aside-warn, .quad-cell .aside-warn { color: var(--warn); line-height: 1.5; }
 .chat-aside .aside-bad, .quad-cell .aside-bad { color: var(--bad); line-height: 1.5; }
@@ -2129,10 +2171,10 @@ details.card > summary + * { margin-top: 8px; }
   #viewChat.layout-quad > #sessionPanel.hidden { display: none !important; }
   /* 顶栏的「会话」按钮在四宫格里留着：它和右上格的折叠行调的是同一个函数，
      两个入口不会打架，而且窄屏时右上格多半是收着的，顶栏那个才是够得着的入口。 */
-  #viewChat.layout-quad > .chat-top #btnChatSessions { display: inline-flex; }
+  #viewChat.layout-quad > .chat-top #btnChatSessions { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
   /* 本页皮肤开关（日间 / 作业室）：只在四宫格这一页露出来。窄屏不给 ——
      顶栏在手机上已经排不下更多按钮，而它只是个外观开关（默认日间照样能用）。 */
-  #viewChat.layout-quad > .chat-top #btnQuadSkin { display: inline-flex; }
+  #viewChat.layout-quad > .chat-top #btnQuadSkin { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
 }
 
 /* ── 四宫格的第二种排法：对话占右半边全高（岗位 layout: 'quad-chat'）──
@@ -2251,8 +2293,8 @@ details.card > summary + * { margin-top: 8px; }
     overflow-y: auto;
   }
   #viewChat.layout-quad-chat > #sessionPanel.hidden { display: none !important; }
-  #viewChat.layout-quad-chat > .chat-top #btnChatSessions { display: inline-flex; }
-  #viewChat.layout-quad-chat > .chat-top #btnQuadSkin { display: inline-flex; }
+  #viewChat.layout-quad-chat > .chat-top #btnChatSessions { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
+  #viewChat.layout-quad-chat > .chat-top #btnQuadSkin { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
 }
 
 /* 窄屏（≤959px）：不摆四格（四个都看不清），改成一次摊开一格的抽屉。
@@ -3135,5 +3177,220 @@ details.card > summary + * { margin-top: 8px; }
 }
 /* 上下文小圈"快满"的那档原来写死了一个红（#d9534f），这里收回令牌，跟 --bad 一起管 */
 .skin-neon .ctx-ring.hot { --ctx-hot: var(--bad); }
+
+/* ══════════ 默认员工聊天页：舒适度层（不触碰秘书页 / 四宫格）══════════
+ *
+ * 默认页是每天反复使用的主工作面：信息架构已经稳定，这里只改善阅读节奏与触控反馈。
+ * 作用域刻意锁在「没有 layout-* 外壳」的 #viewChat，避免特殊岗位继续沿用自己的舞台布局。
+ * 形状采用克制的 Apple 风圆角、半透明表面与轻阴影，不引入渐变或装饰性背景。 */
+#viewChat:not([class*="layout-"]) {
+  --regular-chat-canvas: color-mix(in srgb, var(--bg) 92%, var(--panel-2));
+  --regular-chat-surface: color-mix(in srgb, var(--panel) 94%, var(--bg));
+  --regular-chat-border: color-mix(in srgb, var(--line) 78%, transparent);
+  background: var(--regular-chat-canvas);
+}
+
+#viewChat:not([class*="layout-"]) > .chat-top {
+  min-height: 58px;
+  gap: 10px;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  border-bottom-color: var(--regular-chat-border);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--panel) 70%, transparent), 0 8px 24px rgba(0, 0, 0, 0.045);
+}
+
+#viewChat:not([class*="layout-"]) > .chat-top .chat-back {
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+  color: var(--accent);
+  font-size: 26px;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+#viewChat:not([class*="layout-"]) > .chat-top .chat-back:hover:not(:disabled) {
+  border-color: var(--regular-chat-border);
+  background: var(--panel-2);
+}
+#viewChat:not([class*="layout-"]) > .chat-top .chat-back:active:not(:disabled) { transform: scale(0.96); }
+
+#viewChat:not([class*="layout-"]) .chat-peer-avatar .desk-avatar-box { width: 36px; height: 36px; margin-right: 10px; }
+#viewChat:not([class*="layout-"]) .chat-peer-avatar img.desk-avatar { border-width: 1px; }
+#viewChat:not([class*="layout-"]) .chat-peer-name { font-size: 15px; letter-spacing: 0; }
+#viewChat:not([class*="layout-"]) .chat-peer-status { gap: 6px; font-size: 12px; }
+#viewChat:not([class*="layout-"]) .chat-dot { width: 8px; height: 8px; }
+
+#viewChat:not([class*="layout-"]) .chat-top-actions { gap: 6px; }
+#viewChat:not([class*="layout-"]) .chat-top-actions button {
+  border-color: transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+#viewChat:not([class*="layout-"]) .chat-top-actions button:hover:not(:disabled) {
+  border-color: var(--regular-chat-border);
+  background: color-mix(in srgb, var(--panel-2) 76%, transparent);
+  color: var(--fg);
+}
+#viewChat:not([class*="layout-"]) .chat-top-actions button.primary {
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  background: color-mix(in srgb, var(--active-bg) 82%, transparent);
+  color: var(--accent);
+}
+
+#viewChat:not([class*="layout-"]) > .chat-sessions {
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--bg));
+  border-bottom-color: var(--regular-chat-border);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.07);
+}
+#viewChat:not([class*="layout-"]) > .chat-sessions ul.list { gap: 4px; }
+#viewChat:not([class*="layout-"]) > .chat-sessions li.item {
+  border-color: transparent;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: transparent;
+  transition: background-color 140ms ease, box-shadow 140ms ease, color 140ms ease;
+}
+#viewChat:not([class*="layout-"]) > .chat-sessions li.item:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+}
+#viewChat:not([class*="layout-"]) > .chat-sessions li.item.active {
+  border-color: transparent;
+  background: var(--active-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+#viewChat:not([class*="layout-"]) > .chat-sessions li.empty {
+  border-color: var(--regular-chat-border);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+#viewChat:not([class*="layout-"]) .chat-advanced { border-top-style: solid; border-top-color: var(--regular-chat-border); }
+#viewChat:not([class*="layout-"]) .cs-create-input,
+#viewChat:not([class*="layout-"]) .chat-advanced input {
+  border-color: var(--regular-chat-border);
+  background: var(--input-bg);
+}
+
+#viewChat:not([class*="layout-"]) > .messages {
+  padding: 24px clamp(16px, 3vw, 34px) 18px;
+  gap: 8px;
+  background: var(--regular-chat-canvas);
+}
+#viewChat:not([class*="layout-"]) > .messages .empty {
+  max-width: 30em;
+  padding: 26px 18px;
+  line-height: 1.65;
+}
+#viewChat:not([class*="layout-"]) > .messages .msg {
+  max-width: 860px;
+  padding-inline: 2px;
+}
+#viewChat:not([class*="layout-"]) > .messages .bubble {
+  max-width: min(78%, 680px);
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 11px 15px;
+  line-height: 1.56;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.035);
+}
+#viewChat:not([class*="layout-"]) > .messages .msg.user .bubble { border-bottom-right-radius: 7px; }
+#viewChat:not([class*="layout-"]) > .messages .msg.assistant .bubble {
+  border-color: var(--regular-chat-border);
+  background: color-mix(in srgb, var(--panel) 96%, var(--bg));
+}
+#viewChat:not([class*="layout-"]) > .messages .msg.user .bubble {
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--msg-user-bg) 22%, transparent);
+}
+#viewChat:not([class*="layout-"]) > .messages .tool-card,
+#viewChat:not([class*="layout-"]) > .messages .interaction-note,
+#viewChat:not([class*="layout-"]) > .messages .err-bar {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.035);
+}
+
+#viewChat:not([class*="layout-"]) > .composer {
+  padding-top: 12px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  border-top: 1px solid var(--regular-chat-border);
+}
+#viewChat:not([class*="layout-"]) > .composer .composer-inner {
+  max-width: 860px;
+  gap: 6px;
+  padding: 5px 6px 5px 8px;
+  border: 1px solid var(--regular-chat-border);
+  border-radius: 23px;
+  background: var(--panel);
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.07);
+}
+#viewChat:not([class*="layout-"]) > .composer textarea {
+  min-height: 42px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 17px;
+  padding: 9px 8px;
+}
+#viewChat:not([class*="layout-"]) > .composer textarea:hover:not(:disabled) { border-color: transparent; }
+#viewChat:not([class*="layout-"]) > .composer .chat-attach,
+#viewChat:not([class*="layout-"]) > .composer .chat-compact {
+  border-color: transparent;
+  border-radius: 15px;
+  color: var(--muted);
+}
+#viewChat:not([class*="layout-"]) > .composer .chat-attach:hover:not(:disabled),
+#viewChat:not([class*="layout-"]) > .composer .chat-compact:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--panel-2);
+  color: var(--fg);
+}
+#viewChat:not([class*="layout-"]) > .composer .chat-send {
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  box-shadow: 0 3px 9px color-mix(in srgb, var(--msg-user-bg) 30%, transparent);
+}
+#viewChat:not([class*="layout-"]) > .composer .chat-send.chat-stop { box-shadow: 0 3px 9px color-mix(in srgb, var(--bad) 25%, transparent); }
+#viewChat:not([class*="layout-"]) .attach-strip { padding-top: 8px; }
+
+#viewChat:not([class*="layout-"]) > #employeeAside {
+  gap: 12px;
+  padding: 16px 14px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--bg));
+  border-left-color: var(--regular-chat-border);
+}
+#viewChat:not([class*="layout-"]) > #employeeAside .aside-block {
+  border-color: transparent;
+  border-radius: 16px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel-2) 74%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 60%, transparent);
+}
+#viewChat:not([class*="layout-"]) > #employeeAside .aside-title { margin-bottom: 8px; font-size: 13px; }
+#viewChat:not([class*="layout-"]) > #employeeAside .aside-row { padding: 3px 0; }
+
+#viewChat:not([class*="layout-"]) button:focus-visible,
+#viewChat:not([class*="layout-"]) input:focus-visible,
+#viewChat:not([class*="layout-"]) textarea:focus-visible,
+#viewChat:not([class*="layout-"]) select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  #viewChat:not([class*="layout-"]) > .chat-top {
+    min-height: 54px;
+    gap: 6px;
+    padding-top: calc(6px + env(safe-area-inset-top));
+  }
+  #viewChat:not([class*="layout-"]) .chat-peer-avatar .desk-avatar-box { width: 32px; height: 32px; margin-right: 8px; }
+  #viewChat:not([class*="layout-"]) .chat-peer-name { font-size: 14px; }
+  #viewChat:not([class*="layout-"]) .chat-top-actions { gap: 2px; }
+  #viewChat:not([class*="layout-"]) .chat-top-actions button { padding-inline: 9px; }
+  #viewChat:not([class*="layout-"]) > .messages { padding: 16px 12px 12px; gap: 6px; }
+  #viewChat:not([class*="layout-"]) > .messages .msg { padding-inline: 0; }
+  #viewChat:not([class*="layout-"]) > .messages .bubble { max-width: 88%; padding: 10px 13px; }
+  #viewChat:not([class*="layout-"]) > .composer { padding-top: 8px; }
+  #viewChat:not([class*="layout-"]) > .composer .composer-inner { padding: 4px 5px 4px 6px; }
+  #viewChat:not([class*="layout-"]) > .composer textarea { min-height: 40px; padding-inline: 7px; }
+}
 
 `

@@ -50,7 +50,8 @@ tmp/
 .codex/
 workDir*/
 security-audit/
-docs/
+docs/*
+!docs/dse-public-account.html
 
 # ── 员工数据与素材 ──
 # 边界一句话：**仓库里只放程序** —— 工作区、会话、证据、素材、头像属于各台机器上的

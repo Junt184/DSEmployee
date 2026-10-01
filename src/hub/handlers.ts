@@ -868,6 +868,72 @@ const employeeCreate: Handler = async (hub, _conn, params) => {
   return await forwardToNode(hub, input.nodeId, 'employee.create', input)
 }
 
+const employeeRemove: Handler = async (hub, _conn, params) => {
+  const input = parse(
+    z.object({ employeeId: employeeIdSchema, deleteFiles: z.boolean().optional() }).passthrough(),
+    params,
+    'employee.remove',
+  )
+  const employee = requireEmployee(hub, input.employeeId)
+  const result = await forwardToEmployeeNode(hub, employee.id, 'employee.remove', input)
+  const state = hub.state()
+  const now = Date.now()
+
+  for (const [jobId, job] of Object.entries(state.jobs)) {
+    if (job.employeeId !== employee.id) continue
+    delete state.jobs[jobId]
+    for (const [runId, run] of Object.entries(state.scheduleRuns)) {
+      if (run.jobId === jobId) delete state.scheduleRuns[runId]
+    }
+  }
+  delete state.autoApprove[employee.id]
+  state.acl = state.acl.filter((rule) => rule.from !== employee.id && rule.to !== employee.id)
+
+  for (const record of Object.values(state.invokes)) {
+    if (record.fromEmployeeId !== employee.id && record.toEmployeeId !== employee.id) continue
+    if (record.status === 'pending-approval' || record.status === 'queued' || record.status === 'running') {
+      record.status = 'failed'
+      record.error = '员工已注销'
+      record.finishedAtMs = now
+    }
+  }
+  for (const approval of Object.values(state.approvals)) {
+    const related =
+      approval.kind === 'employee.invoke'
+        ? approval.fromEmployeeId === employee.id || approval.toEmployeeId === employee.id
+        : approval.employeeId === employee.id
+    if (related && approval.status === 'pending') {
+      approval.status = 'cancelled'
+      approval.resolvedAtMs = now
+      approval.resolutionNote = '员工已注销'
+    }
+  }
+
+  for (const [mailId, item] of Object.entries(state.mailbox)) {
+    const itemParams = item.params as Record<string, unknown>
+    if (itemParams['employeeId'] === employee.id || itemParams['toEmployeeId'] === employee.id || itemParams['fromEmployeeId'] === employee.id) {
+      delete state.mailbox[mailId]
+    }
+  }
+  for (const order of Object.values(state.officePrefs.employeeOrder)) {
+    const index = order.indexOf(employee.id)
+    if (index >= 0) order.splice(index, 1)
+  }
+
+  await Promise.all([
+    hub.store.saveJobs(),
+    hub.store.saveScheduleRuns(),
+    hub.store.saveAutoApprove(),
+    hub.store.saveAcl(),
+    hub.store.saveInvokes(),
+    hub.store.saveApprovals(),
+    hub.store.saveMailbox(),
+    hub.store.saveOfficePrefs(),
+  ])
+  hub.broadcastToScope('employee.read', 'employee.changed', { removed: employee.id })
+  return result
+}
+
 /* ── 授权 ── */
 
 const aclGet: Handler = async (hub) => ({ rules: hub.state().acl })
@@ -1074,6 +1140,47 @@ const employeeActivity: Handler = async (hub, _conn, params) => {
     ...(input.maxItems === undefined ? {} : { maxItems: input.maxItems }),
   })
   return { ...report, defaultWindowMs: ACTIVITY_DEFAULT_WINDOW_MS }
+}
+
+const employeeInvokeSettle: Handler = async (hub, conn, params) => {
+  if (conn.nodeId === undefined) throw protocolError('forbidden', 'employee.invoke.settle is node-only')
+  const input = parse(
+    z.object({
+      invokeId: z.string().min(1).max(128),
+      status: z.enum(['running', 'completed', 'failed']),
+      sessionId: z.string().min(1).max(256).optional(),
+      resultText: z.string().max(200_000).optional(),
+      error: z.string().max(4_000).optional(),
+    }),
+    params,
+    'employee.invoke.settle',
+  )
+  const state = hub.state()
+  const record = state.invokes[input.invokeId]
+  if (record === undefined) return { settled: false, reason: 'unknown-invoke' }
+  const target = state.employees[record.toEmployeeId]
+  if (target === undefined || target.nodeId !== conn.nodeId) {
+    throw protocolError('forbidden', 'node may only settle invokes for its own employees')
+  }
+  if (record.status === 'completed' || record.status === 'failed' || record.status === 'denied') {
+    return { settled: false, status: record.status }
+  }
+  record.status = input.status
+  if (input.sessionId !== undefined) record.resultSessionId = input.sessionId
+  if (input.resultText !== undefined) record.resultText = input.resultText
+  if (input.error !== undefined) record.error = input.error
+  if (input.status !== 'running') record.finishedAtMs = Date.now()
+  await hub.store.saveInvokes()
+  hub.broadcastToScope('employee.read', 'invoke.settled', {
+    invokeId: record.invokeId,
+    fromEmployeeId: record.fromEmployeeId,
+    toEmployeeId: record.toEmployeeId,
+    status: record.status,
+    ...(record.resultText === undefined ? {} : { resultText: record.resultText }),
+    ...(record.error === undefined ? {} : { error: record.error }),
+    ...(record.resultSessionId === undefined ? {} : { sessionId: record.resultSessionId }),
+  })
+  return { settled: true, status: record.status }
 }
 
 /* ────────────────────────────── 配对窗口 ────────────────────────────── */
@@ -2714,6 +2821,24 @@ async function dispatchInvoke(
     return await settle('failed', { error: 'target employee no longer exists' })
   }
 
+  /* 互调需要结果，但离线期间也不能把记录伪装成“已启动”。
+     这里把完整调用参数落进持久邮箱；节点上线后由 mailbox flush 以 async 形态
+     投递，节点立即确认接收，再通过 employee.invoke.settle 回传最终结果。 */
+  if (hub.nodeConnection(to.nodeId) === undefined) {
+    const alreadyQueued = mailboxItemsFor(state, to.nodeId).some(
+      (item) => item.method === 'employee.invoke' && (item.params as Record<string, unknown>)['invokeId'] === record.invokeId,
+    )
+    if (!alreadyQueued) {
+      await enqueueForNode(hub, to.nodeId, 'employee.invoke', {
+        invokeId: record.invokeId,
+        fromEmployeeId: record.fromEmployeeId,
+        toEmployeeId: record.toEmployeeId,
+        task: record.task,
+      })
+    }
+    return await settle('queued', {})
+  }
+
   record.status = 'running'
   await hub.store.saveInvokes()
 
@@ -2736,9 +2861,21 @@ async function dispatchInvoke(
   if (!res.ok) {
     const offline = res.error?.code === 'node-offline'
     const timedOut = res.error?.code === 'timeout'
-    // 离线不算失败：留在 queued，等节点重连（二期接持久邮箱后会自动续投）。
-    // 超时也不能当离线 —— 节点在线，只是慢；如实报失败并说明"可能还在跑"，
+    // 发送瞬间掉线时补进持久邮箱；超时不能当离线 —— 节点在线，只是慢；如实报失败并说明"可能还在跑"，
     // 否则任务会永远停在 queued，而人以为它在等重连。
+    if (offline) {
+      const alreadyQueued = mailboxItemsFor(state, to.nodeId).some(
+        (item) => item.method === 'employee.invoke' && (item.params as Record<string, unknown>)['invokeId'] === record.invokeId,
+      )
+      if (!alreadyQueued) {
+        await enqueueForNode(hub, to.nodeId, 'employee.invoke', {
+          invokeId: record.invokeId,
+          fromEmployeeId: record.fromEmployeeId,
+          toEmployeeId: record.toEmployeeId,
+          task: record.task,
+        })
+      }
+    }
     return await settle(offline ? 'queued' : 'failed', {
       error: timedOut
         ? `${res.error?.message ?? '超时'}；该任务**可能仍在目标员工那里执行**，` +
@@ -2796,9 +2933,10 @@ export const hubHandlers: Partial<Record<string, Handler>> = {
   'employee.get': employeeGet,
   'employee.create': employeeCreate,
   'employee.update': forwarder('employee.update', ['employeeId']),
-  'employee.remove': forwarder('employee.remove', ['employeeId']),
+  'employee.remove': employeeRemove,
   'employee.files.list': forwarder('employee.files.list', ['employeeId']),
   'employee.files.get': forwarder('employee.files.get', ['employeeId', 'path']),
+  'employee.files.download': forwarder('employee.files.download', ['employeeId', 'path'], { path: 512 }),
   'employee.files.set': forwarder('employee.files.set', ['employeeId', 'path']),
   'employee.files.upload': forwarder('employee.files.upload', ['employeeId', 'path', 'dataBase64'], {
     path: 512,
@@ -2837,6 +2975,7 @@ export const hubHandlers: Partial<Record<string, Handler>> = {
   'employee.activity': employeeActivity,
   'employee.invoke': employeeInvoke,
   'employee.invoke.list': employeeInvokeList,
+  'employee.invoke.settle': employeeInvokeSettle,
 
   /* 授权 */
   'job.self.list': jobSelfList,
