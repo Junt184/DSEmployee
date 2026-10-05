@@ -933,6 +933,7 @@ var OFFLINE_ACTION_LABELS = {
   'session.create': '新建会话',
   'session.history': '历史消息',
   'session.rename': '重命名会话',
+  'session.archive': '归档或恢复会话',
   'session.subscribe': '会话订阅',
   'session.cancel': '停止回合',
   'session.compact': '压缩会话',

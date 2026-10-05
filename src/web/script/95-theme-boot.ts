@@ -128,9 +128,8 @@ function init() {
   applyDensity(readLocal(LS.density) === 'comfortable' ? 'comfortable' : 'compact')
   /* 右栏默认展开（宽屏/中档都摆得下），读过存档就用存档 */
   applyAsideVisible(currentAsideVisible())
-  /* 左栏同理。常驻左栏只在 ≥1200px 存在，但状态照读不误 —— 窗口从小拖到大时，
-     它应该就是上次在大屏上选的那个样子，而不是每次都被重置成展开。 */
-  applyPanelVisible(currentPanelVisible())
+  /* 左栏每次打开页面都收起，只有点击才展开；忽略旧版存下的展开偏好。 */
+  applyPanelVisible(false)
   loadUnread()
   renderEmployees()
   renderApprovals()

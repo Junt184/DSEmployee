@@ -34,6 +34,7 @@ import { EmployeeStore, type DiscoveredEmployee } from './employees.ts'
 import { forwarderPort, normalizeProxyConfig, startLocalForwarder, type LocalForwarder, type Upstream } from './llm-proxy.ts'
 import { isPermissionPreset, PERMISSION_PRESETS, readDefaultPreset, writeDefaultPreset } from './permission.ts'
 import { historyEntrySeq, pageEvents, sanitizeHistoryEvents, sanitizeLiveEvent } from './session-payload.ts'
+import { SessionArchiveStore } from './session-archive.ts'
 import {
   activeModelOf,
   applyLlmToSession,
@@ -122,6 +123,7 @@ export class NodeAgent {
   readonly #watchedSessions = new Set<string>()
   /** sessionId → employeeId（推送事件时用来做归属校验） */
   readonly #sessionOwner = new Map<string, string>()
+  readonly #sessionArchives = new SessionArchiveStore()
   /**
    * 每个会话**最后一次事件**的时刻（不区分有没有人在看）。
    *
@@ -625,13 +627,16 @@ export class NodeAgent {
       /* ── 会话 ── */
       case 'session.list': {
         const employee = await this.#findEmployee(requireString(params, 'employeeId'))
-        const all = await dsh.sessionList()
+        const [all, archives] = await Promise.all([dsh.sessionList(), this.#sessionArchives.list(employee.workspacePath)])
         const sessions = (all.items as Array<Record<string, unknown>>).filter(
           (item) => typeof item['cwd'] === 'string' && path.resolve(item['cwd']) === employee.workspacePath,
         )
         for (const session of sessions) {
           const id = session['sessionId']
           if (typeof id !== 'string') continue
+          session['archived'] = archives.has(id)
+          const archivedAtMs = archives.get(id)
+          if (archivedAtMs !== undefined) session['archivedAtMs'] = archivedAtMs
           this.#sessionOwner.set(id, employee.id)
           /* 带上"最后一次事件的时刻"：控制台据此在没人盯着的时候也能看出"这个回合疑似卡死"。
              没收到过事件的会话不填该字段（不假装有数据）。 */
@@ -639,6 +644,20 @@ export class NodeAgent {
           if (last !== undefined) session['lastEventAtMs'] = last
         }
         return { sessions }
+      }
+      case 'session.archive': {
+        const employee = await this.#findEmployee(requireString(params, 'employeeId'))
+        const sessionId = requireString(params, 'sessionId')
+        if (typeof params['archived'] !== 'boolean') throw protocolError('bad-request', 'archived 必须为布尔值')
+        const archived = params['archived']
+        const all = await dsh.sessionList()
+        const session = (all.items as Array<Record<string, unknown>>).find(item =>
+          item['sessionId'] === sessionId && typeof item['cwd'] === 'string' &&
+          path.resolve(item['cwd']) === employee.workspacePath)
+        if (session === undefined) throw protocolError('not-found', '该员工下不存在此会话')
+        if (archived && session['running'] === true) throw protocolError('bad-request', '运行中的会话暂不能归档，请等回合结束')
+        const archivedAtMs = await this.#sessionArchives.set(employee.workspacePath, sessionId, archived)
+        return { sessionId, archived, ...(archivedAtMs === undefined ? {} : { archivedAtMs }) }
       }
       case 'session.create': {
         const employee = await this.#findEmployee(requireString(params, 'employeeId'))

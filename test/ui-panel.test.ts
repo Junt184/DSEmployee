@@ -3,7 +3,7 @@
  *
  * 右栏早就能收（`aside-collapsed`，见 test/ui-aside.test.ts），左栏以前**常驻不可收** ——
  * 1440 屏上它占 220–260px，而"我正跟这个人说话时要不要一直看着会话列表"是每个人
- * 每块屏幕自己的取舍。这一页补上，并与右栏**完全同款**：一个类 + 一条 localStorage 存档。
+ * 每块屏幕自己的取舍。左栏每次进入页面默认收起，点击展开；右栏保留设备偏好。
  *
  * 三个容易写错、因此逐条钉住的地方：
  *   1. **两条轨道都收**时的组合态必须单独写一条规则。grid-template-columns 是同一条属性，
@@ -312,7 +312,7 @@ function makePanelHarness() {
   const button = makeElement()
   const store = new Map<string, string>()
   const scope = {
-    state: { panelVisible: true } as { panelVisible: boolean },
+    state: { panelVisible: false } as { panelVisible: boolean },
     LS: { panel: 'dse.panelVisible' },
     $: (id: string) => (id === 'viewChat' ? chat : id === 'btnPanel' ? button : null),
     readLocal: (key: string) => (store.has(key) ? (store.get(key) as string) : null),
@@ -338,12 +338,15 @@ function makePanelHarness() {
 }
 
 describe('左栏折叠行为（跑交付脚本里的真源码）', () => {
-  it('默认展开：不挂折叠类，按钮 aria-pressed=true', () => {
+  it('默认收起：挂折叠类，点击后才展开', () => {
     const h = makePanelHarness()
     h.applyPanelVisible(h.currentPanelVisible())
+    assert.equal(h.chat.classes.has('panel-collapsed'), true)
+    assert.equal(h.button.attrs['aria-pressed'], 'false')
+    assert.equal(h.button.classes.has('primary'), false)
+    h.togglePanel()
     assert.equal(h.chat.classes.has('panel-collapsed'), false)
     assert.equal(h.button.attrs['aria-pressed'], 'true')
-    assert.equal(h.button.classes.has('primary'), true)
   })
 
   it('切换一次即收起：挂类 + 写 localStorage + aria 翻转', () => {
@@ -352,7 +355,7 @@ describe('左栏折叠行为（跑交付脚本里的真源码）', () => {
     h.togglePanel()
     assert.equal(h.state.panelVisible, false)
     assert.equal(h.chat.classes.has('panel-collapsed'), true, '收起时 #viewChat 要挂 panel-collapsed')
-    assert.equal(h.store.get('dse.panelVisible'), 'hidden')
+    assert.equal(h.store.has('dse.panelVisible'), false)
     assert.equal(h.button.attrs['aria-pressed'], 'false')
     assert.equal(h.button.classes.has('primary'), false)
   })
@@ -364,14 +367,17 @@ describe('左栏折叠行为（跑交付脚本里的真源码）', () => {
     h.togglePanel()
     assert.equal(h.state.panelVisible, true)
     assert.equal(h.chat.classes.has('panel-collapsed'), false)
-    assert.equal(h.store.get('dse.panelVisible'), 'shown')
+    assert.equal(h.store.has('dse.panelVisible'), false)
   })
 
-  it('刷新后沿用存档（收起过的设备不该自己变回展开）', () => {
+  it('刷新后再次收起，旧版展开存档也不能自动打开', () => {
+    const previous = makePanelHarness()
+    previous.togglePanel()
+    assert.equal(previous.currentPanelVisible(), true)
     const h = makePanelHarness()
-    h.store.set('dse.panelVisible', 'hidden')
-    assert.equal(h.currentPanelVisible(), false)
+    h.store.set('dse.panelVisible', 'shown')
     h.applyPanelVisible(h.currentPanelVisible())
+    assert.equal(h.currentPanelVisible(), false)
     assert.equal(h.chat.classes.has('panel-collapsed'), true)
   })
 
@@ -382,7 +388,7 @@ describe('左栏折叠行为（跑交付脚本里的真源码）', () => {
     assert.ok(SCRIPT.includes("classList.toggle('aside-collapsed'"), '右栏挂 aside-collapsed')
     assert.ok(SCRIPT.includes("panel: 'dse.panelVisible'"), '左栏有自己的存档键')
     assert.ok(SCRIPT.includes("aside: 'dse.asideVisible'"), '右栏的存档键原样保留')
-    assert.ok(SCRIPT.includes('panelVisible: true'), '左栏有自己的 state 字段')
+    assert.ok(SCRIPT.includes('panelVisible: false'), '左栏有自己的 state 字段，默认收起')
     assert.ok(SCRIPT.includes('asideVisible: true'), '右栏的 state 字段原样保留')
 
     const h = makePanelHarness()
@@ -403,8 +409,8 @@ describe('左栏折叠行为（跑交付脚本里的真源码）', () => {
        用户找了一圈说"没看到收侧边栏的按钮"。所以文案里必须有"栏折叠"。 */
     const html = renderControlUi({ hubId: 'h', hubName: 'n', scriptUrl: '/ui.js' })
     assert.ok(
-      html.includes('id="btnPanel" class="ghost" aria-pressed="false" title="收起左侧的会话栏">会话栏折叠</button>'),
-      '页面里的初始文案应当是「会话栏折叠」（脚本没起来之前也该是对的）',
+      html.includes('id="btnPanel" class="ghost" aria-pressed="false" title="展开左侧的会话栏">会话栏展开</button>'),
+      '页面里的初始文案应当是「会话栏展开」（脚本没起来之前也该是对的）',
     )
     const h = makePanelHarness()
     h.applyPanelVisible(true)

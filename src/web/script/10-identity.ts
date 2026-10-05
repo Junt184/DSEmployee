@@ -31,6 +31,8 @@ var state = {
   sessions: [],
   /* 普通聊天页的员工会话树：列表按员工缓存，折叠状态在切换员工时保留。 */
   employeeSessions: new Map(),
+  expandedArchives: new Set(),
+  sessionArchivePending: new Map(),
   collapsedSessionEmployees: new Set(),
   employeeSelectionVersion: 0,
   sessionOpenVersion: 0,
@@ -53,9 +55,8 @@ var state = {
   reconnectTimer: null,
   /* 右栏（员工上下文）是否展开：按设备存 localStorage，见 applyAsideVisible */
   asideVisible: true,
-  /* 左栏（会话列表）是否展开：同上，见 applyPanelVisible。与 asideVisible **分开**——
-     只想收左栏的人不该顺手把右栏也收掉，所以两个方向各有各的存档与开关。 */
-  panelVisible: true,
+  /* 左栏每次打开页面默认收起，点击后展开；与右栏的设备偏好互不影响。 */
+  panelVisible: false,
   /* 岗位目录（Hub 侧共享数据）：控制台只做缓存，用于下拉候选与工位徽章 */
   positions: [],
   expectClose: false,

@@ -965,6 +965,10 @@ li.empty { color: var(--muted); padding: 6px 2px; border: 1px dashed var(--line)
   opacity: 0;
 }
 .cs-edit:hover:not(:disabled) { border: none; color: var(--accent); }
+.cs-archive { font-size: 11px; opacity: 0.6; }
+.cs-edit:disabled { opacity: 0.35; }
+.cs-archives-toggle { min-height: 36px; padding: 4px 8px; font-size: 12px; color: var(--muted); }
+ul.cs-archive-sessions { margin: 4px 0; }
 li.item:hover .cs-edit, li.item:focus-within .cs-edit { opacity: 1; }
 /* 触屏没有 hover：常显但低调 */
 @media (hover: none) {
@@ -3268,7 +3272,13 @@ details.card > summary + * { margin-top: 8px; }
   transition: background-color 140ms ease;
 }
 #viewChat:not([class*="layout-"]) .cs-employee-head:hover { background: var(--panel-2); }
-#viewChat:not([class*="layout-"]) .cs-employee.selected > .cs-employee-head { background: var(--active-bg); }
+#viewChat:not([class*="layout-"]) .cs-employee.selected > .cs-employee-head {
+  background: var(--active-bg);
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+#viewChat:not([class*="layout-"]) .cs-employee.selected .cs-employee-select,
+#viewChat:not([class*="layout-"]) .cs-employee.selected > .cs-employee-head .cs-employee-toggle { color: var(--accent); }
+.cs-current { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 10px; }
 #viewChat:not([class*="layout-"]) .cs-employee-head button {
   min-height: 40px;
   border: 0;
@@ -3294,6 +3304,9 @@ details.card > summary + * { margin-top: 8px; }
   font-weight: 600;
 }
 #viewChat:not([class*="layout-"]) .cs-employee-select .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-employee-label { display: flex; align-items: baseline; flex: 1 1 auto; min-width: 0; }
+.cs-employee-label .name { min-width: 0; }
+.cs-position { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: var(--muted); }
 #viewChat:not([class*="layout-"]) .cs-employee-select .badge { flex: 0 0 auto; margin-left: auto; font-size: 10px; }
 #viewChat:not([class*="layout-"]) ul.cs-employee-sessions {
   margin: 4px 0 0 15px;

@@ -107,7 +107,7 @@ function selectEmployee(employeeId, options) {
     var remembered = recallSession(entering)
     var entry = employeeSessionState(entering)
     if (remembered !== '' && (entry.error !== '' || state.sessions.some(function (session) {
-      return sessionIdOf(session) === remembered
+      return sessionIdOf(session) === remembered && session.archived !== true
     }))) return openSession(remembered)
     var latest = latestSessionId()
     if (latest !== '') {
@@ -115,6 +115,10 @@ function selectEmployee(employeeId, options) {
     }
     if (entry.error !== '') {
       clearMessages('暂时无法读取会话列表。请点击会话栏中的「重试」；已有会话不会被替换。')
+      return
+    }
+    if (state.sessions.some(function (session) { return session.archived === true })) {
+      clearMessages('会话已全部归档。展开会话栏可查看或恢复历史，也可点击「新会话」。')
       return
     }
     /* 节点离线、列表又拉不到：沿用本地记下的那个会话，让"先排队"这条路留着。
@@ -140,6 +144,7 @@ function latestSessionId() {
   var best = ''
   var bestAt = -1
   state.sessions.forEach(function (session) {
+    if (session.archived === true) return
     var at =
       typeof session.updatedAt === 'number'
         ? session.updatedAt
@@ -311,6 +316,7 @@ function loadSessions(employeeId, quiet) {
   var entry = employeeSessionState(employeeId)
   if (entry.loading) return entry.request
   entry.revision = (entry.revision || 0) + 1
+  var requestRevision = entry.revision
   entry.loading = true
   entry.error = ''
   entry.request = rpc('session.list', { employeeId: employeeId })
@@ -319,6 +325,8 @@ function loadSessions(employeeId, quiet) {
         return item !== null && typeof item === 'object'
       })
       entry.loading = false
+      /* 归档回执已改变列表时，变更前发出的请求不能把旧状态写回来。 */
+      if (entry.revision !== requestRevision) return entry.sessions || []
       /* 不能把无法识别的响应当作「暂无会话」。 */
       if (!Array.isArray(payload) && (payload === null || typeof payload !== 'object' ||
           !['sessions', 'items', 'list', 'events'].some(function (key) { return Array.isArray(payload[key]) }))) {
@@ -336,6 +344,7 @@ function loadSessions(employeeId, quiet) {
     })
     .catch(function (error) {
       entry.loading = false
+      if (entry.revision !== requestRevision) return entry.sessions || []
       entry.error = '暂时无法读取会话，点击重试'
       if (quiet !== true && state.selectedEmployeeId === employeeId) reportRpcError('session.list', error)
       renderSessions()
@@ -370,45 +379,32 @@ function renderSessions() {
 }
 
 function appendSessionRows(list, employeeId, sessions, pending) {
+  var archived = sessions.filter(function (session) { return session.archived === true })
+  sessions = sessions.filter(function (session) { return session.archived !== true })
   sessions.forEach(function (session) {
-    var id = sessionIdOf(session)
-    if (id === '') return
-    var active = employeeId === state.selectedEmployeeId && id === state.selectedSessionId
-    var item = el('li', 'item compact' + (active ? ' active' : ''))
-    item.setAttribute('data-session-id', id)
-    item.setAttribute('data-employee-id', employeeId)
-    item.tabIndex = 0
-    item.setAttribute('role', 'button')
-    if (active) item.setAttribute('aria-current', 'true')
-    var top = el('div', 'item-top')
-    top.appendChild(el('span', 'name', sessionTitleOf(session) || shortId(id)))
-    if (session.running === true) top.appendChild(el('span', 'badge ok', '运行中'))
-    /* 改名入口：铅笔小按钮，桌面 hover 显现、手机常显但低调（样式见 .cs-edit） */
-    var edit = el('button', 'cs-edit', '✎')
-    edit.type = 'button'
-    edit.title = '重命名会话'
-    edit.setAttribute('aria-label', '重命名会话')
-    edit.onclick = function (event) {
-      event.stopPropagation()
-      startSessionRename(item, session, id, employeeId)
-    }
-    top.appendChild(edit)
-    item.appendChild(top)
-    var updated = typeof session.updatedAt === 'number' ? session.updatedAt : typeof session.updatedAtMs === 'number' ? session.updatedAtMs : 0
-    item.appendChild(el('div', 'meta', updated > 0 ? new Date(updated).toLocaleString() : id))
-    item.onclick = function () {
-      if (state.selectedEmployeeId === employeeId) openSession(id)
-      else selectEmployee(employeeId, { sessionId: id })
-    }
-    item.onkeydown = function (event) {
-      if (event.target !== item || (event.key !== 'Enter' && event.key !== ' ')) return
-      event.preventDefault()
-      item.onclick()
-    }
-    list.appendChild(item)
+    appendSessionRow(list, employeeId, session)
   })
   if (sessions.length === 0 && pending !== true) {
-    list.appendChild(el('li', 'empty', '（暂无会话）'))
+    list.appendChild(el('li', 'empty', archived.length > 0 ? '（暂无未归档会话）' : '（暂无会话）'))
+  }
+  if (archived.length > 0) {
+    var archiveGroup = el('li', 'cs-archives')
+    var expanded = state.expandedArchives.has(employeeId)
+    var toggle = el('button', 'ghost cs-archives-toggle', '已归档（' + archived.length + '）')
+    toggle.type = 'button'
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false')
+    var children = el('ul', 'list cs-archive-sessions' + (expanded ? '' : ' hidden'))
+    children.id = 'archivedSessions_' + employeeId
+    toggle.setAttribute('aria-controls', children.id)
+    toggle.onclick = function () {
+      if (state.expandedArchives.has(employeeId)) state.expandedArchives.delete(employeeId)
+      else state.expandedArchives.add(employeeId)
+      renderSessions()
+    }
+    archived.forEach(function (session) { appendSessionRow(children, employeeId, session) })
+    archiveGroup.appendChild(toggle)
+    archiveGroup.appendChild(children)
+    list.appendChild(archiveGroup)
   }
   if (!isRegularSessionTree()) {
     var legacyFresh = el('li', 'item compact cs-new', '＋ 新会话')
@@ -416,7 +412,6 @@ function appendSessionRows(list, employeeId, sessions, pending) {
     list.appendChild(legacyFresh)
     return
   }
-  /* 抽屉底部固定一行「新会话」 */
   var fresh = el('li', 'cs-new')
   var create = el('button', 'ghost', '＋ 新会话')
   create.type = 'button'
@@ -427,6 +422,57 @@ function appendSessionRows(list, employeeId, sessions, pending) {
   }
   fresh.appendChild(create)
   list.appendChild(fresh)
+}
+
+function appendSessionRow(list, employeeId, session) {
+  var id = sessionIdOf(session)
+  if (id === '') return
+  var active = employeeId === state.selectedEmployeeId && id === state.selectedSessionId
+  var item = el('li', 'item compact' + (active ? ' active' : ''))
+  item.setAttribute('data-session-id', id)
+  item.setAttribute('data-employee-id', employeeId)
+  item.tabIndex = 0
+  item.setAttribute('role', 'button')
+  if (active) item.setAttribute('aria-current', 'true')
+  var top = el('div', 'item-top')
+  top.appendChild(el('span', 'name', sessionTitleOf(session) || shortId(id)))
+  if (session.running === true) top.appendChild(el('span', 'badge ok', '运行中'))
+  /* 改名入口：铅笔小按钮，桌面 hover 显现、手机常显但低调（样式见 .cs-edit） */
+  var edit = el('button', 'cs-edit', '✎')
+  edit.type = 'button'
+  edit.title = '重命名会话'
+  edit.setAttribute('aria-label', '重命名会话')
+  edit.disabled = state.phase !== 'ready' || state.scopes.indexOf('employee.prompt') < 0
+  edit.onclick = function (event) {
+    event.stopPropagation()
+    startSessionRename(item, session, id, employeeId)
+  }
+  top.appendChild(edit)
+  var archive = el('button', 'cs-edit cs-archive', session.archived === true ? '恢复' : '归档')
+  archive.type = 'button'
+  archive.title = session.running === true && session.archived !== true ? '运行中的会话暂不能归档' :
+    (session.archived === true ? '恢复会话' : '归档会话（保留历史）')
+  archive.setAttribute('aria-label', session.archived === true ? '恢复会话' : '归档会话')
+  archive.disabled = state.phase !== 'ready' || state.scopes.indexOf('employee.prompt') < 0 ||
+    state.sessionArchivePending.has(employeeId + '/' + id) || (session.running === true && session.archived !== true)
+  archive.onclick = function (event) {
+    event.stopPropagation()
+    setSessionArchived(id, session.archived !== true, employeeId)
+  }
+  top.appendChild(archive)
+  item.appendChild(top)
+  var updated = typeof session.updatedAt === 'number' ? session.updatedAt : typeof session.updatedAtMs === 'number' ? session.updatedAtMs : 0
+  item.appendChild(el('div', 'meta', updated > 0 ? new Date(updated).toLocaleString() : id))
+  item.onclick = function () {
+    if (state.selectedEmployeeId === employeeId) openSession(id)
+    else selectEmployee(employeeId, { sessionId: id })
+  }
+  item.onkeydown = function (event) {
+    if (event.target !== item || (event.key !== 'Enter' && event.key !== ' ')) return
+    event.preventDefault()
+    item.onclick()
+  }
+  list.appendChild(item)
 }
 
 function renderSessionTree(list) {
@@ -460,7 +506,15 @@ function renderSessionTree(list) {
       }
       var choose = el('button', 'ghost cs-employee-select')
       choose.type = 'button'
-      choose.appendChild(el('span', 'name', String(employee.name || shortId(id))))
+      var positionLabel = positionName(employee.position) || '通用'
+      var label = el('span', 'cs-employee-label')
+      label.appendChild(el('span', 'name', String(employee.name || shortId(id))))
+      var position = el('span', 'cs-position', '（' + positionLabel + '）')
+      position.title = positionLabel
+      label.appendChild(position)
+      choose.appendChild(label)
+      choose.title = String(employee.name || shortId(id)) + '（' + positionLabel + '）'
+      if (id === state.selectedEmployeeId) choose.appendChild(el('span', 'cs-current', '当前'))
       if (employee.nodeOnline === false) choose.appendChild(el('span', 'badge off', '离线'))
       choose.setAttribute('aria-pressed', id === state.selectedEmployeeId ? 'true' : 'false')
       choose.onclick = function () {
@@ -595,6 +649,59 @@ function renameSession(id, title, employeeId) {
       reportRpcError('session.rename', error)
       return false
     })
+}
+
+function setSessionArchived(id, archived, employeeId) {
+  var key = employeeId + '/' + id
+  if (state.sessionArchivePending.has(key)) return state.sessionArchivePending.get(key)
+  var openVersion = state.sessionOpenVersion
+  var request = rpc('session.archive', { employeeId: employeeId, sessionId: id, archived: archived })
+    .then(function (payload) {
+      if (payload === null || typeof payload !== 'object' || payload.archived !== archived) throw new Error('节点未返回有效的归档状态')
+      var entry = employeeSessionState(employeeId)
+      entry.revision = (entry.revision || 0) + 1
+      function update(sessions) {
+        return sessions.map(function (session) {
+          if (sessionIdOf(session) !== id) return session
+          var next = Object.assign({}, session, { archived: archived })
+          delete next.archivedAtMs
+          if (archived && typeof payload.archivedAtMs === 'number') next.archivedAtMs = payload.archivedAtMs
+          return next
+        })
+      }
+      if (entry.sessions !== null) entry.sessions = update(entry.sessions)
+      if (state.selectedEmployeeId === employeeId) state.sessions = update(state.sessions)
+      rememberSessionList(employeeId, entry.sessions || [])
+      if (archived) forgetSession(employeeId, id)
+      if (archived && state.selectedEmployeeId === employeeId && state.selectedSessionId === id && state.sessionOpenVersion === openVersion) {
+        state.selectedSessionId = null
+        state.sessionOpenVersion += 1
+        state.subscribed = null
+        state.historySync = null
+        state.chatHistory = null
+        state.streamBubble = null
+        setRunning(false)
+        clearMessages('此会话已归档，历史完整保留。可从「已归档」查看或恢复，或选择其他会话。')
+        applyContextFromSessionList()
+        syncControls()
+        updateChatHeader()
+        updateSendButton()
+        updateCompactButton()
+        updateDistillButton()
+        rpc('session.unsubscribe', { employeeId: employeeId, sessionId: id }).catch(function () {})
+      }
+      toast(archived ? '会话已归档，历史完整保留' : '会话已恢复', 'ok')
+      return true
+    })
+    .catch(function (error) { reportRpcError('session.archive', error); return false })
+    .then(function (ok) {
+      state.sessionArchivePending.delete(key)
+      renderSessions()
+      return ok
+    })
+  state.sessionArchivePending.set(key, request)
+  renderSessions()
+  return request
 }
 
 function createSession(options) {

@@ -412,6 +412,13 @@ export const METHODS = {
     roles: OPERATOR_ONLY,
     summary: '重命名一个会话',
   },
+  'session.archive': {
+    scopes: ['employee.prompt'],
+    route: 'node',
+    idempotent: true,
+    roles: OPERATOR_ONLY,
+    summary: '归档或恢复一个会话（保留历史）',
+  },
   'session.history': {
     scopes: ['employee.read'],
     route: 'node',

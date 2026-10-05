@@ -40,6 +40,8 @@ function loadPositions() {
       /* 目录变了，工位上的岗位徽章要跟着变；下拉在新建表单展开时才重建，
          避免冲掉用户正在填的内容 */
       if ($('officeFloor') !== null) renderEmployees()
+      /* 会话树也显示岗位名，目录晚到或改名后需同步刷新。 */
+      renderSessions()
       return state.positions
     })
     .catch(function (error) {

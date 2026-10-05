@@ -54,17 +54,19 @@ class Element {
   focus(): void {}
 }
 
-type Session = { sessionId: string; name: string; updatedAt?: number }
+type Session = { sessionId: string; name: string; updatedAt?: number; archived?: boolean; archivedAtMs?: number; running?: boolean }
 type Entry = { sessions: Session[] | null; loading: boolean; error: string; request: Promise<Session[]> | null }
 type Call = { method: string; params: Record<string, unknown>; resolve(value: unknown): void; reject(error: unknown): void }
 
 function harness() {
   const state = {
     phase: 'ready', view: 'chat', scopes: ['employee.read', 'employee.prompt'],
+    positions: [],
     employees: [{ id: 'emp_a', name: '小艾' }, { id: 'emp_b', name: '阿澈' }],
     selectedEmployeeId: 'emp_a' as string | null, selectedSessionId: 'a1' as string | null,
     sessions: [{ sessionId: 'a1', name: '会话 A' }] as Session[],
     employeeSessions: new Map<string, Entry>(), collapsedSessionEmployees: new Set<string>(),
+    expandedArchives: new Set<string>(), sessionArchivePending: new Map<string, Promise<boolean>>(),
     employeeSelectionVersion: 0, sessionOpenVersion: 0, subscribed: null as string | null, attachments: [],
     historySync: null, sessionEventSeqs: new Set(),
   }
@@ -93,16 +95,16 @@ function harness() {
     applyPositionShell: () => {}, employeeById: (id: string) => state.employees.find((e) => e.id === id),
     setView: (view: string) => { state.view = view },
     selectedNodeOnline: () => true, recallSession: () => '', adoptOfflineSession: () => '',
-    rememberSession: () => {}, setRunning: () => {}, renderQuadCells: () => {},
+    rememberSession: () => {}, forgetSession: () => {}, setRunning: () => {}, renderQuadCells: () => {},
     readCachedSessions: () => null, rememberSessionList: () => {}, readCachedHistory: () => null, rememberHistory: () => {},
     clearMessages: (message: string) => messages.push(message), normalizeEvent: (event: unknown) => event,
     renderNormalized: (event: unknown) => messages.push(event), historyCursor: () => null,
     syncHistoryMore: () => {}, scrollMessages: () => {}, describeError: () => 'error',
     turnRunning: false, distilling: false, distillSnapshot: null, chatFollowTail: true, historyRendering: false,
   })
-  const names = ['el', 'clear', 'pickArray', 'sessionIdOf', 'sessionTitleOf', 'latestSessionId',
+  const names = ['el', 'clear', 'pickArray', 'positionList', 'positionName', 'sessionIdOf', 'sessionTitleOf', 'latestSessionId',
     'employeeSessionState', 'cacheEmployeeSessions', 'isRegularSessionTree', 'loadSessionTree',
-    'loadSessions', 'reloadEmployeeSessions', 'renderSessions', 'appendSessionRows', 'renderSessionTree',
+    'loadSessions', 'reloadEmployeeSessions', 'renderSessions', 'appendSessionRows', 'appendSessionRow', 'renderSessionTree', 'setSessionArchived',
     'selectEmployee', 'createSession', 'renameSession', 'startSessionRename', 'ensureSubscribed', 'openSession',
     'sessionEventSeq', 'mergeSessionHistory', 'renderSessionEvent']
   vm.runInContext(names.map((name) => {
@@ -115,6 +117,18 @@ function harness() {
 async function flush(): Promise<void> { await new Promise<void>((resolve) => setImmediate(resolve)) }
 
 describe('普通聊天页的员工会话树', () => {
+  it('高亮与当前标识跟随所选员工，其他员工不带标识', () => {
+    const h = harness()
+    h.scope.renderSessions()
+    assert.equal(h.list.children[0]!.classList.contains('selected'), true)
+    assert.equal(h.list.children[0]!.querySelector('.cs-current')!.textContent, '当前')
+    assert.equal(h.list.children[1]!.querySelector('.cs-current'), null)
+    h.state.selectedEmployeeId = 'emp_b'
+    h.scope.renderSessions()
+    assert.equal(h.list.children[0]!.classList.contains('selected'), false)
+    assert.equal(h.list.children[1]!.classList.contains('selected'), true)
+    assert.equal(h.list.children[1]!.querySelector('.cs-current')!.textContent, '当前')
+  })
   it('按员工显示会话，折叠不会切换员工，重绘保留折叠状态', () => {
     const h = harness()
     h.scope.renderSessions()
@@ -194,7 +208,7 @@ describe('普通聊天页的员工会话树', () => {
     const h = harness()
     h.scope.renderSessions()
     const item = h.list.children[1]!.children[1]!.children[0]!
-    const edit = item.children[0]!.children.at(-1)!
+    const edit = item.querySelector('.cs-edit')!
     edit.onclick!({ stopPropagation() {} })
     const editor = item.children[0]!
     editor.children[0]!.value = '正在输入的名称'
@@ -210,7 +224,7 @@ describe('普通聊天页的员工会话树', () => {
     const h = harness()
     h.scope.renderSessions()
     const item = h.list.children[1]!.children[1]!.children[0]!
-    item.children[0]!.children.at(-1)!.onclick!({ stopPropagation() {} })
+    item.querySelector('.cs-edit')!.onclick!({ stopPropagation() {} })
     const editor = item.children[0]!
     editor.children[0]!.value = '修改后的会话名称'
     editor.children[1]!.onclick!({ stopPropagation() {} })
@@ -222,6 +236,91 @@ describe('普通聊天页的员工会话树', () => {
     assert.equal(h.state.selectedEmployeeId, 'emp_a')
     assert.equal(h.state.employeeSessions.get('emp_b')!.sessions![0]!.name, '修改后的会话名称')
     assert.deepEqual(h.errors, [])
+  })
+})
+
+describe('会话归档交互', () => {
+  it('归档会话隐藏在可展开的已归档列表中，恢复后回到普通列表', async () => {
+    const h = harness()
+    const archived = { sessionId: 'a2', name: '旧记录', archived: true }
+    h.state.sessions.push(archived)
+    h.state.employeeSessions.get('emp_a')!.sessions!.push(archived)
+    h.scope.renderSessions()
+    const group = h.list.children[0]!.querySelector('.cs-archives')!
+    assert.equal(group.children[1]!.classList.contains('hidden'), true)
+    group.children[0]!.onclick!()
+    const expanded = h.list.children[0]!.querySelector('.cs-archives')!
+    assert.equal(expanded.children[1]!.classList.contains('hidden'), false)
+    const restore = expanded.children[1]!.children[0]!.querySelector('.cs-archive')!
+    restore.onclick!({ stopPropagation() {} })
+    assert.deepEqual({ ...h.calls[0]!.params }, { employeeId: 'emp_a', sessionId: 'a2', archived: false })
+    h.calls[0]!.resolve({ sessionId: 'a2', archived: false })
+    await flush()
+    assert.equal(h.list.children[0]!.querySelector('.cs-archives'), null)
+    assert.equal(h.state.sessions[1]!.archived, false)
+    assert.equal(h.state.selectedSessionId, 'a1')
+  })
+
+  it('归档失败保留原会话；重复点击只发一次请求', async () => {
+    const h = harness()
+    const first = h.scope.setSessionArchived('a1', true, 'emp_a')
+    const second = h.scope.setSessionArchived('a1', true, 'emp_a')
+    assert.equal(first, second)
+    assert.equal(h.calls.length, 1)
+    h.calls[0]!.reject(new Error('node offline'))
+    assert.equal(await first, false)
+    assert.equal(h.state.selectedSessionId, 'a1')
+    assert.equal(h.state.sessions[0]!.archived, undefined)
+    assert.equal(h.state.sessionArchivePending.size, 0)
+  })
+
+  it('归档当前会话只退出选择，不创建会话、不发送任务；历史仍可打开', async () => {
+    const h = harness()
+    const saving = h.scope.setSessionArchived('a1', true, 'emp_a')
+    h.calls[0]!.resolve({ sessionId: 'a1', archived: true, archivedAtMs: 100 })
+    assert.equal(await saving, true)
+    assert.equal(h.state.selectedSessionId, null)
+    assert.equal(h.state.sessions[0]!.archived, true)
+    assert.equal(h.calls.some(call => call.method === 'session.create' || call.method === 'session.prompt'), false)
+    const historyRow = h.list.children[0]!.querySelector('.cs-archives')!.children[1]!.children[0]!
+    historyRow.onclick!()
+    assert.equal(h.state.selectedSessionId, 'a1')
+    assert.equal(h.calls.at(-1)!.method, 'session.subscribe')
+  })
+
+  it('A 的归档回执晚到不能清空 B 的当前会话', async () => {
+    const h = harness()
+    const saving = h.scope.setSessionArchived('a1', true, 'emp_a')
+    h.state.selectedEmployeeId = 'emp_b'
+    h.state.selectedSessionId = 'b1'
+    h.state.sessions = h.state.employeeSessions.get('emp_b')!.sessions!
+    h.calls[0]!.resolve({ sessionId: 'a1', archived: true })
+    assert.equal(await saving, true)
+    assert.equal(h.state.selectedSessionId, 'b1')
+    assert.equal(h.state.sessions[0]!.sessionId, 'b1')
+    assert.equal(h.state.employeeSessions.get('emp_a')!.sessions![0]!.archived, true)
+    assert.equal(h.messages.length, 0)
+  })
+
+  it('归档之前发出的列表与轮询不能把会话状态盖回未归档', async () => {
+    const h = harness()
+    const loading = h.scope.loadSessions('emp_a')
+    const saving = h.scope.setSessionArchived('a1', true, 'emp_a')
+    h.calls[1]!.resolve({ sessionId: 'a1', archived: true })
+    await saving
+    h.calls[0]!.resolve({ sessions: [{ sessionId: 'a1', name: '旧快照' }] })
+    await loading
+    h.scope.cacheEmployeeSessions('emp_a', [{ sessionId: 'a1', name: '更旧快照' }], 0)
+    assert.equal(h.state.sessions[0]!.archived, true)
+  })
+
+  it('所有会话已归档时不自动打开旧记录或创建新会话', async () => {
+    const h = harness()
+    const selecting = h.scope.selectEmployee('emp_a')
+    h.calls[0]!.resolve({ sessions: [{ sessionId: 'a1', name: '归档记录', archived: true }] })
+    await selecting
+    assert.equal(h.state.selectedSessionId, null)
+    assert.equal(h.calls.some(call => ['session.create', 'session.history', 'session.prompt'].includes(call.method)), false)
   })
 })
 

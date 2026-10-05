@@ -69,6 +69,7 @@ var IDEMPOTENT_METHODS = {
   'session.compact': true,
   'session.subscribe': true,
   'session.unsubscribe': true,
+  'session.archive': true,
   'approval.resolve': true,
   'dsh.question.answer': true,
   'device.pair.approve': true,
@@ -326,6 +327,13 @@ function recallSession(employeeId) {
   if (employeeId === null || employeeId === '') return ''
   var value = readSessionMemory()[String(employeeId)]
   return typeof value === 'string' ? value : ''
+}
+
+function forgetSession(employeeId, sessionId) {
+  var map = readSessionMemory()
+  if (map[String(employeeId)] !== sessionId) return
+  delete map[String(employeeId)]
+  writeLocal(LS.lastSessions, JSON.stringify(map))
 }
 
 function idbOpen() {

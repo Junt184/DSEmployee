@@ -670,8 +670,8 @@ function toggleAside() {
 
 /* ── 左栏（会话列表）折叠 ──
  *
- * 与右栏**完全同款**：JS 只切 #viewChat 上的一个类 + 写 localStorage，怎么收由 CSS 决定。
- * 左右各一个开关（#btnPanel / #btnAside），互不影响，也各自记住各自的。
+ * JS 只切 #viewChat 上的一个类，怎么收由 CSS 决定。左栏每次打开页面默认收起，
+ * 点击才展开；同一次使用中切换员工或改变窗口宽度不会重置。
  *
  * 与右栏唯一的区别是**存在的档位**：常驻左栏只在 ≥1200px 有（中档与窄屏的左栏是顶栏
  * 那个「会话」抽屉，走的是 .hidden 那一套状态，与本类的 panel-collapsed 不共用）。
@@ -679,7 +679,7 @@ function toggleAside() {
  *
  * 状态同样**不**跟会话/员工走：它是"这块屏幕想不想常驻会话列表"，换员工不该把它变回来。 */
 function currentPanelVisible() {
-  return readLocal(LS.panel) !== 'hidden'
+  return state.panelVisible === true
 }
 
 function syncPanelToggle() {
@@ -696,7 +696,6 @@ function syncPanelToggle() {
 
 function applyPanelVisible(visible) {
   state.panelVisible = visible === true
-  writeLocal(LS.panel, state.panelVisible ? 'shown' : 'hidden')
   syncPanelToggle()
 }
 

@@ -2966,6 +2966,7 @@ export const hubHandlers: Partial<Record<string, Handler>> = {
   'session.cancel': forwarder('session.cancel', ['employeeId', 'sessionId']),
   'session.compact': forwarder('session.compact', ['employeeId', 'sessionId']),
   'session.rename': forwarder('session.rename', ['employeeId', 'sessionId', 'title']),
+  'session.archive': forwarder('session.archive', ['employeeId', 'sessionId']),
   'session.history': forwarder('session.history', ['employeeId', 'sessionId']),
   'session.subscribe': sessionSubscribe,
   'session.unsubscribe': sessionUnsubscribe,
