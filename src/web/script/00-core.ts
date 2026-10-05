@@ -115,8 +115,9 @@ var LS = {
   token: 'dse.deviceToken',
   tokenDevice: 'dse.deviceToken.deviceId',
   lastEmployee: 'dse.lastEmployeeId',
-  /* 每个员工上次打开的会话 id（{员工id: 会话id}）。会话本身是节点的事实，
-     本地记它只为一件事：**节点离线时这条路还走得通**（见 adoptOfflineSession）。 */
+  lastView: 'dse.lastView',
+  /* 每个员工上次打开的会话 id（{员工id: 会话id}），刷新与重新进入时优先恢复。
+     会话本身是节点的事实，本地 id 也为节点离线时保留发送入口。 */
   lastSessions: 'dse.lastSessions',
   preset: 'dse.agentPreset',
   tokenMode: 'dse.tokenMode',
@@ -308,6 +309,8 @@ function readSessionMemory() {
 function rememberSession(employeeId, sessionId) {
   if (employeeId === null || sessionId === null || employeeId === '' || sessionId === '') return
   var map = readSessionMemory()
+  /* 重新打开的员工移到末尾，按最近使用淘汰。 */
+  delete map[String(employeeId)]
   map[String(employeeId)] = String(sessionId)
   var keys = Object.keys(map)
   while (keys.length > SESSION_MEMORY_MAX) {

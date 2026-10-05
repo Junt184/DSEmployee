@@ -945,6 +945,7 @@ li.empty { color: var(--muted); padding: 6px 2px; border: 1px dashed var(--line)
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
 }
 .chat-sessions ul.list { max-height: none; }
+.cs-tree-label { display: none; }
 .cs-new { text-align: center; color: var(--accent); font-weight: 600; }
 /* 「＋ 新会话」行下方的命名输入框：留空即不命名 */
 .cs-create-input { margin-top: 6px; min-height: 44px; }
@@ -998,6 +999,8 @@ li.item:hover .cs-edit, li.item:focus-within .cs-edit { opacity: 1; }
   gap: 3px;
 }
 .messages .empty { margin: auto; color: var(--muted); padding: 24px 16px; text-align: center; }
+.chat-latest { display: block; margin: 0 auto 6px; }
+.history-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
 .msg { width: 100%; max-width: 760px; margin: 0 auto; display: flex; animation: msg-in 0.18s ease-out; }
 .msg.user { justify-content: flex-end; }
 .msg.assistant, .msg.tool { justify-content: flex-start; }
@@ -1124,6 +1127,10 @@ li.item:hover .cs-edit, li.item:focus-within .cs-edit { opacity: 1; }
   font-size: 13px;
   word-break: break-word;
 }
+.err-title { font-weight: 600; }
+.err-message, .err-details { margin-top: 6px; }
+.err-details summary { cursor: pointer; }
+.err-original { margin: 6px 0 0; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 .sys { color: var(--muted); font-size: 12px; text-align: center; }
 /* 员工在等人：交互提示条（审批 / 提问）。
    刻意做成窄条而不是气泡 —— 真正的裁决动作在「审批」面板里，
@@ -3244,6 +3251,60 @@ details.card > summary + * { margin-top: 8px; }
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.07);
 }
 #viewChat:not([class*="layout-"]) > .chat-sessions ul.list { gap: 4px; }
+#viewChat:not([class*="layout-"]) .cs-tree-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+#viewChat:not([class*="layout-"]) .cs-tree-label .muted { font-size: 11px; font-weight: 400; }
+#viewChat:not([class*="layout-"]) .cs-employee { min-width: 0; padding-bottom: 6px; }
+#viewChat:not([class*="layout-"]) .cs-employee-head {
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+  transition: background-color 140ms ease;
+}
+#viewChat:not([class*="layout-"]) .cs-employee-head:hover { background: var(--panel-2); }
+#viewChat:not([class*="layout-"]) .cs-employee.selected > .cs-employee-head { background: var(--active-bg); }
+#viewChat:not([class*="layout-"]) .cs-employee-head button {
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+#viewChat:not([class*="layout-"]) .cs-employee-toggle {
+  flex: 0 0 30px;
+  width: 30px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 20px;
+}
+#viewChat:not([class*="layout-"]) .cs-employee-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px 6px 0;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+}
+#viewChat:not([class*="layout-"]) .cs-employee-select .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#viewChat:not([class*="layout-"]) .cs-employee-select .badge { flex: 0 0 auto; margin-left: auto; font-size: 10px; }
+#viewChat:not([class*="layout-"]) ul.cs-employee-sessions {
+  margin: 4px 0 0 15px;
+  padding-left: 10px;
+  border-left: 1px solid var(--regular-chat-border);
+  overflow: visible;
+}
+#viewChat:not([class*="layout-"]) .cs-session-notice { padding: 8px; color: var(--muted); font-size: 11px; }
+#viewChat:not([class*="layout-"]) .cs-session-notice button { padding: 0; min-height: 32px; font-size: inherit; text-align: left; }
+#viewChat:not([class*="layout-"]) .cs-employee-sessions .cs-new button { width: 100%; min-height: 36px; border: 0; text-align: left; font-size: 12px; color: var(--accent); }
+#viewChat:not([class*="layout-"]) .cs-employee-sessions .meta { font-size: 10px; }
 #viewChat:not([class*="layout-"]) > .chat-sessions li.item {
   border-color: transparent;
   border-radius: 14px;

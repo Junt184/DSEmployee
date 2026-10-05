@@ -29,8 +29,15 @@ var state = {
   employeeNames: new Map(),
   selectedEmployeeId: null,
   sessions: [],
+  /* 普通聊天页的员工会话树：列表按员工缓存，折叠状态在切换员工时保留。 */
+  employeeSessions: new Map(),
+  collapsedSessionEmployees: new Set(),
+  employeeSelectionVersion: 0,
+  sessionOpenVersion: 0,
   selectedSessionId: null,
   subscribed: null,
+  historySync: null,
+  sessionEventSeqs: new Set(),
   approvals: [],
   /* 定时任务列表（控制台只读缓存；事实在 Hub 的 jobs.json） */
   jobs: [],

@@ -32,6 +32,19 @@ function bytesOf(value: unknown): number {
 /* ────────────────────────── sanitizeHistoryEvents ────────────────────────── */
 
 describe('sanitizeHistoryEvents', () => {
+  it('长报告与长指令在历史和实时定稿中保留完整正文，工具摘要仍限幅', () => {
+    const text = '这是一份需要完整回看的报告。'.repeat(800)
+    for (const type of ['user/message', 'assistant/message']) {
+      const event = entry(1, type, { message: { content: [{ type: 'text', text }] } })
+      const history = sanitizeHistoryEvents([event]) as typeof event[]
+      assert.deepEqual(history[0], event)
+      const live = { method: 'session/event', payload: { type: 'session/event', sessionId: 's1', event: event.event } }
+      assert.deepEqual(sanitizeLiveEvent(live), live)
+    }
+    const limited = sanitizeHistoryEvents([entry(2, 'tool/result', { text })]) as ReturnType<typeof entry>[]
+    assert.ok((limited[0]!.event.data as { text: string }).text.includes('截断'))
+  })
+
   it('丢弃 request/header 与 request/context，其余事件保留且保序', () => {
     const out = sanitizeHistoryEvents([
       entry(1, 'request/header', { headers: 'x'.repeat(10_000) }),

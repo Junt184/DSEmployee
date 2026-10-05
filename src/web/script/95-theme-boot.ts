@@ -172,6 +172,7 @@ function init() {
 
   var lastEmployee = readLocal(LS.lastEmployee)
   if (lastEmployee !== null && lastEmployee !== '') state.selectedEmployeeId = lastEmployee
+  setView(readLocal(LS.lastView) || 'office')
 
   setPhase('idle')
   document.title = 'DSEmployee 控制台 · ' + BOOT.hubName

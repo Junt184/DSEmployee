@@ -11,18 +11,91 @@
  * 函数声明会提升，但顶层 var 的赋值不会（state、注册表这类必须在用它的代码之前）。
  */
 export const CHUNK_65_CHAT = String.raw`
+/* dsh 的序号在原始事件里；Hub 的广播序号不参与会话去重。 */
+function sessionEventSeq(envelope) {
+  var current = envelope
+  var legacySeq = envelope !== null && typeof envelope === 'object' &&
+    envelope.event !== null && typeof envelope.event === 'object' &&
+    typeof envelope.seq === 'number' && Number.isFinite(envelope.seq) ? envelope.seq : null
+  for (var depth = 0; depth < 8 && current !== null && typeof current === 'object'; depth += 1) {
+    if (typeof current.type === 'string' && current.type !== 'session/event') {
+      if (current.type === 'session/projection') return null
+      if (typeof current.seq === 'number' && Number.isFinite(current.seq)) return current.seq
+    }
+    if (current.event !== null && typeof current.event === 'object') current = current.event
+    else if (current.payload !== null && typeof current.payload === 'object') current = current.payload
+    else break
+  }
+  return legacySeq
+}
+
+/* 使用原始事件的发生时间，不能拿刷新页面的时间替代历史故障时间。 */
+function sessionEventTime(envelope) {
+  var current = envelope
+  for (var depth = 0; depth < 8 && current !== null && typeof current === 'object'; depth += 1) {
+    if (typeof current.type === 'string' && current.type !== 'session/event') {
+      var atMs = current.time !== undefined ? current.time : current.timestampMs
+      if (typeof atMs === 'number' && Number.isFinite(atMs) && atMs >= 0) return atMs
+    }
+    if (current.event !== null && typeof current.event === 'object') current = current.event
+    else if (current.payload !== null && typeof current.payload === 'object') current = current.payload
+    else break
+  }
+  return null
+}
+
+function mergeSessionHistory(history, live) {
+  var records = []
+  var bySeq = new Map()
+  function add(entry, isLive) {
+    var seq = sessionEventSeq(entry)
+    if (seq !== null && bySeq.has(seq)) {
+      /* 重叠事件只回放一次，但实时起止仍需校正运行状态。 */
+      if (isLive) records[bySeq.get(seq)].live = true
+      else records[bySeq.get(seq)].entry = entry
+      return
+    }
+    if (seq !== null) bySeq.set(seq, records.length)
+    records.push({ entry: entry, live: isLive, seq: seq, order: records.length })
+  }
+  history.forEach(function (entry) { add(entry, false) })
+  live.forEach(function (entry) { add(entry, true) })
+  records.sort(function (a, b) {
+    if (a.seq !== null && b.seq !== null) return a.seq - b.seq
+    if (a.seq !== null) return -1
+    if (b.seq !== null) return 1
+    return a.order - b.order
+  })
+  return records
+}
+
+function renderSessionEvent(entry, live) {
+  var seq = sessionEventSeq(entry)
+  if (seq !== null) {
+    if (state.sessionEventSeqs.has(seq)) return false
+    state.sessionEventSeqs.add(seq)
+  }
+  var normalized = normalizeEvent(entry)
+  if (live === true && normalized.type === 'turn/start') setRunning(true)
+  renderNormalized(normalized, live)
+  return true
+}
+
 function ensureSubscribed() {
   if (state.selectedEmployeeId === null || state.selectedSessionId === null) return Promise.resolve(false)
   if (state.subscribed === state.selectedSessionId) return Promise.resolve(true)
   var employeeId = state.selectedEmployeeId
   var sessionId = state.selectedSessionId
+  var openVersion = state.sessionOpenVersion
   return rpc('session.subscribe', { employeeId: employeeId, sessionId: sessionId })
     .then(function (payload) {
+      if (state.selectedEmployeeId !== employeeId || state.selectedSessionId !== sessionId || state.sessionOpenVersion !== openVersion) return false
       state.subscribed = sessionId
       pushRaw('session.subscribe 结果', payload)
       return true
     })
     .catch(function (error) {
+      if (state.selectedEmployeeId !== employeeId || state.selectedSessionId !== sessionId || state.sessionOpenVersion !== openVersion) return false
       reportRpcError('session.subscribe', error)
       return false
     })
@@ -47,15 +120,19 @@ function resumeSelectedSession() {
   state.subscribed = null
   var employeeId = state.selectedEmployeeId
   var sessionId = state.selectedSessionId
+  var previousOpen = state.sessionOpenVersion
   loadSessions().then(function () {
-    if (state.selectedEmployeeId !== employeeId || state.selectedSessionId !== sessionId) return
+    if (state.selectedEmployeeId !== employeeId || state.selectedSessionId !== sessionId || state.sessionOpenVersion !== previousOpen) return
     /* openSession 会重新订阅并回填历史：排队气泡随之被真实历史取代（它已经送达了） */
-    openSession(sessionId)
+    var reopening = openSession(sessionId)
+    var resumedOpen = state.sessionOpenVersion
     /* 但"被取代"只说明界面刷新了，不说明送出去了 —— 队列里还剩东西就照实说一句，
        否则失败的那条会随气泡一起消失（体检里的「待发 N 条」在另一页，没人会去看）。 */
-    if (state.selectedEmployeeId !== employeeId) return
-    rpc('node.list', {})
+    return reopening.then(function () {
+      if (state.selectedEmployeeId !== employeeId || state.selectedSessionId !== sessionId || state.sessionOpenVersion !== resumedOpen) return
+      return rpc('node.list', {})
       .then(function (payload) {
+        if (state.selectedEmployeeId !== employeeId || state.selectedSessionId !== sessionId || state.sessionOpenVersion !== resumedOpen) return
         var nodes = pickArray(payload, ['nodes', 'items', 'list'])
         var employee = null
         for (var i = 0; i < state.employees.length; i += 1) {
@@ -73,6 +150,7 @@ function resumeSelectedSession() {
       .catch(function () {
         /* 只是补一句说明：拿不到就算了，不打扰 */
       })
+    })
   })
 }
 
@@ -100,9 +178,23 @@ function noteNodeOnline(employees) {
 }
 
 function openSession(sessionId) {
+  var employeeId = state.selectedEmployeeId
+  var sameSession = state.selectedSessionId === sessionId
+  var messages = $('messages')
+  var previousScroll = messages === null ? 0 : messages.scrollTop
+  var cachedHistory = readCachedHistory(employeeId, sessionId)
+  var previousHistory = sameSession && state.chatHistory !== undefined && state.chatHistory !== null &&
+    state.chatHistory.employeeId === employeeId && state.chatHistory.sessionId === sessionId
+      ? state.chatHistory.payload : cachedHistory
+  var selectionVersion = state.employeeSelectionVersion
+  var openVersion = state.sessionOpenVersion = (state.sessionOpenVersion || 0) + 1
+  function stillSelected() {
+    return state.selectedEmployeeId === employeeId && state.selectedSessionId === sessionId &&
+      state.employeeSelectionVersion === selectionVersion && state.sessionOpenVersion === openVersion
+  }
   state.selectedSessionId = sessionId
   state.subscribed = null
-  state.streamBubble = null
+  if (!sameSession) state.streamBubble = null
   /* 记在本地：节点离线 + 页面刷新过时，靠它把会话接回来（见 adoptOfflineSession） */
   rememberSession(state.selectedEmployeeId, sessionId)
   /* 切会话先把小圈换成这一会话的数（列表里那份快照；实时帧来了会盖掉） */
@@ -112,7 +204,7 @@ function openSession(sessionId) {
   distillSnapshot = null
   toggleSessionPanel(false)
   /* 会话列表带着 running 标志：进会话时据此恢复发送/停止键形态 */
-  var running = false
+  var running = sameSession && turnRunning
   for (var i = 0; i < state.sessions.length; i += 1) {
     if (sessionIdOf(state.sessions[i]) === sessionId) {
       running = state.sessions[i].running === true
@@ -127,41 +219,88 @@ function openSession(sessionId) {
   updateSendButton()
   updateCompactButton()
   updateDistillButton()
-  clearMessages('正在读取历史…')
-  ensureSubscribed().then(function () {
-    if (state.selectedEmployeeId === null || state.selectedSessionId === null) return null
+  if (!sameSession) clearMessages('正在读取历史…')
+  if (!sameSession && cachedHistory !== null) {
+    clearMessages('')
+    historyRendering = true
+    cachedHistory.events.forEach(function (entry) { renderSessionEvent(entry, false) })
+    historyRendering = false
+    historyHasMore = cachedHistory.hasMore === true
+    historyOldestSeq = historyCursor(cachedHistory, cachedHistory.events)
+    syncHistoryMore()
+    appendSystem('正在显示本机保存的记录，连接后会同步最新消息。')
+    scrollMessages()
+  }
+  state.chatHistory = { employeeId: employeeId, sessionId: sessionId,
+    payload: previousHistory || { events: [], hasMore: false } }
+  var sync = { employeeId: employeeId, sessionId: sessionId, version: openVersion, events: [],
+    previous: previousHistory === null ? [] : previousHistory.events.filter(function (entry) { return sessionEventSeq(entry) !== null }) }
+  state.historySync = sync
+  return ensureSubscribed().then(function () {
+    if (!stillSelected()) return null
     return rpc('session.history', {
-      employeeId: state.selectedEmployeeId,
-      sessionId: state.selectedSessionId,
+      employeeId: employeeId,
+      sessionId: sessionId,
       maxEvents: 400
     })
       .then(function (payload) {
+        if (!stillSelected()) return null
         pushRaw('session.history 结果', payload)
-        clearMessages('')
+        if (!Array.isArray(payload) && (payload === null || typeof payload !== 'object' ||
+            !['events', 'items', 'messages', 'history'].some(function (key) { return Array.isArray(payload[key]) }))) {
+          throw new Error('历史响应格式不正确')
+        }
         var events = pickArray(payload, ['events', 'items', 'messages', 'history'])
-        if (events.length === 0) {
+        var records = mergeSessionHistory(sync.previous.concat(events), sync.events)
+        /* 同步期间可能仍在向上阅读；以完成前的位置决定是否跟随。 */
+        var readingScroll = messages === null ? previousScroll : messages.scrollTop
+        var following = chatFollowTail
+        state.historySync = null
+        clearMessages('')
+        historyRendering = true
+        if (records.length === 0) {
           clearMessages('（会话暂无历史；直接输入指令即可）')
         } else {
-          events.forEach(function (item) {
-            renderNormalized(normalizeEvent(item))
+          records.forEach(function (record) {
+            renderSessionEvent(record.entry, record.live)
           })
         }
+        historyRendering = false
         /* 翻页入口：hasMore 且拿到游标（契约 oldestSeq，或首条 history 行的 seq）
            才亮「加载更早记录」按钮；旧节点只回 hasMore 时退化为原来的纯文本提示 */
         historyHasMore = payload !== null && typeof payload === 'object' && payload.hasMore === true
-        historyOldestSeq = historyCursor(payload, events)
+        var mergedEvents = records.map(function (record) { return record.entry })
+        historyOldestSeq = historyCursor({}, mergedEvents)
+        if (historyOldestSeq === null) historyOldestSeq = historyCursor(payload, events)
+        state.chatHistory.payload = { events: mergedEvents, hasMore: historyHasMore, oldestSeq: historyOldestSeq }
+        rememberHistory(employeeId, sessionId, state.chatHistory.payload)
         if (historyHasMore && historyOldestSeq !== null) syncHistoryMore()
         else if (historyHasMore) appendSystem('（还有更早的历史未加载）')
-        scrollMessages()
+        if (sameSession && !following && messages !== null) {
+          chatFollowTail = false
+          messages.scrollTop = readingScroll
+        } else scrollMessages()
         return null
       })
       .catch(function (error) {
+        if (!stillSelected()) return null
+        state.historySync = null
+        historyRendering = false
         reportRpcError('session.history', error)
-        clearMessages(
-          '读取历史失败（该会话历史可能过大，或节点正在重连）；实时输出不受影响，可稍后重试。（原始错误：' +
-            describeError(error) +
-            '）'
-        )
+        /* 保留旧消息与请求期间的新输出；失败提示有就地重试入口。 */
+        if (messages !== null) {
+          var oldNotice = messages.querySelector('.history-error')
+          if (oldNotice !== null) messages.removeChild(oldNotice)
+          var empty = messages.querySelector('.empty')
+          if (empty !== null) messages.removeChild(empty)
+          var notice = el('div', 'sys history-error')
+          notice.appendChild(el('span', '', '历史暂时无法同步，已显示的消息仍保留。' + describeError(error)))
+          var retry = el('button', 'ghost', '重试读取历史')
+          retry.type = 'button'
+          retry.onclick = function () { if (stillSelected()) openSession(sessionId) }
+          notice.appendChild(retry)
+          messages.appendChild(notice)
+        }
         return null
       })
   })
@@ -174,7 +313,7 @@ function openSession(sessionId) {
  *   { kind:'assistant', type, stream:'delta'|'block'|'message', text, index }
  *   { kind:'tool',      type, phase:'call'|'result', name, toolId, detail, failed }
  *   { kind:'status',    type, code, text }   // turn/end：completed 或其它收尾
- *   { kind:'error',     type, text }         // turn/end 且 reason.kind==='error'
+ *   { kind:'error',     type, text, code?, atMs? } // turn/end 且 reason.kind==='error'
  *   { kind:'hidden',    type }               // 内部帧：不进对话区（原始帧只进 ?debug=1 面板）
  *
  * 容忍的输入形状：
@@ -392,7 +531,12 @@ function normalizeEvent(envelope) {
     if (reasonKind === 'error') {
       var reasonError = reason.error
       var errorText = reasonError !== null && typeof reasonError === 'object' && typeof reasonError.message === 'string' ? reasonError.message : ''
-      return { kind: 'error', type: type, text: errorText === '' ? '回合失败（无错误详情）' : errorText }
+      var failure = { kind: 'error', type: type, text: errorText === '' ? '回合失败（无错误详情）' : errorText }
+      var errorCode = firstString(reasonError, ['code'])
+      if (errorCode !== '') failure.code = errorCode
+      var errorAt = sessionEventTime(envelope)
+      if (errorAt !== null) failure.atMs = errorAt
+      return failure
     }
     if (reasonKind === 'completed') return { kind: 'status', type: type, code: 'turn-end', text: '' }
     if (reasonKind === '') return { kind: 'hidden', type: type }
@@ -660,6 +804,10 @@ function clearMessages(placeholder) {
   var box = $('messages')
   if (box === null) return
   clear(box)
+  state.sessionEventSeqs = new Set()
+  chatFollowTail = true
+  var latest = $('btnChatLatest')
+  if (latest !== null) latest.classList.add('hidden')
   state.streamBubble = null
   turnText = ''
   lastSentText = ''
@@ -676,9 +824,14 @@ function clearMessages(placeholder) {
 
 function scrollMessages() {
   /* 前插渲染模式（「加载更早」）：滚动由 prependHistoryEvents 统一补差值 */
-  if (historyPrependBox !== null) return
+  if (historyPrependBox !== null || historyRendering) return
   var box = $('messages')
-  if (box !== null) box.scrollTop = box.scrollHeight
+  if (box === null) return
+  if (chatFollowTail) box.scrollTop = box.scrollHeight
+  else {
+    var latest = $('btnChatLatest')
+    if (latest !== null) latest.classList.remove('hidden')
+  }
 }
 
 /* ── 历史翻页（「加载更早记录」）──
@@ -697,12 +850,12 @@ function renderBox() {
 /* 翻页游标：优先契约字段 payload.oldestSeq；缺失时退化到首条 history 行自带的 seq
    （行形状 {seq, event}，事件按 seq 升序，两者等价）。都没有（旧节点）→ null。 */
 function historyCursor(payload, events) {
-  if (payload !== null && typeof payload === 'object' && typeof payload.oldestSeq === 'number' && payload.oldestSeq > 0) {
+  if (payload !== null && typeof payload === 'object' && typeof payload.oldestSeq === 'number' && payload.oldestSeq >= 0) {
     return payload.oldestSeq
   }
   if (events.length > 0) {
-    var first = events[0]
-    if (first !== null && typeof first === 'object' && typeof first.seq === 'number' && first.seq > 0) return first.seq
+    var seq = sessionEventSeq(events[0])
+    if (seq !== null && seq >= 0) return seq
   }
   return null
 }
@@ -742,6 +895,7 @@ function loadEarlierHistory() {
   if (state.selectedEmployeeId === null || state.selectedSessionId === null) return
   var employeeId = state.selectedEmployeeId
   var sessionId = state.selectedSessionId
+  var openVersion = state.sessionOpenVersion
   var beforeSeq = historyOldestSeq
   historyLoading = true
   syncHistoryMore()
@@ -753,15 +907,19 @@ function loadEarlierHistory() {
   })
     .then(function (payload) {
       pushRaw('session.history 更早一页', payload)
+      if (state.selectedEmployeeId !== employeeId || state.selectedSessionId !== sessionId || state.sessionOpenVersion !== openVersion) return null
+      if (!Array.isArray(payload) && (payload === null || typeof payload !== 'object' ||
+          !['events', 'items', 'messages', 'history'].some(function (key) { return Array.isArray(payload[key]) }))) {
+        throw new Error('历史响应格式不正确')
+      }
       historyLoading = false
-      if (state.selectedEmployeeId !== employeeId || state.selectedSessionId !== sessionId) return null
       var events = pickArray(payload, ['events', 'items', 'messages', 'history'])
       /* 去重：seq >= 游标的事件已上屏。旧节点若忽略 beforeSeq 会整页重复 ——
          fresh 为空即识别出这种情况，收起翻页入口，免得死循环拉同一页。 */
       var fresh = []
       for (var i = 0; i < events.length; i += 1) {
         var row = events[i]
-        var seq = row !== null && typeof row === 'object' && typeof row.seq === 'number' ? row.seq : null
+        var seq = sessionEventSeq(row)
         if (seq !== null && seq >= beforeSeq) continue
         fresh.push(row)
       }
@@ -771,13 +929,23 @@ function loadEarlierHistory() {
       if (fresh.length === 0) historyHasMore = false
       var cursor = historyCursor(payload, fresh)
       if (cursor !== null) historyOldestSeq = cursor
+      if (state.chatHistory !== null && state.chatHistory !== undefined) {
+        state.chatHistory.payload.events = fresh.concat(state.chatHistory.payload.events)
+        state.chatHistory.payload.hasMore = historyHasMore
+        rememberHistory(employeeId, sessionId, state.chatHistory.payload)
+      }
+      var sync = state.historySync
+      if (sync !== undefined && sync !== null && sync.employeeId === employeeId &&
+          sync.sessionId === sessionId && sync.version === openVersion) {
+        sync.previous = fresh.concat(sync.previous)
+      }
       syncHistoryMore()
       return null
     })
     .catch(function (error) {
-      reportRpcError('session.history', error)
-      historyLoading = false
-      if (state.selectedEmployeeId === employeeId && state.selectedSessionId === sessionId) {
+      if (state.selectedEmployeeId === employeeId && state.selectedSessionId === sessionId && state.sessionOpenVersion === openVersion) {
+        reportRpcError('session.history', error)
+        historyLoading = false
         syncHistoryMore()
         appendSystem('读取更早历史失败：' + describeError(error) + '（可再点「加载更早记录」重试）')
       }
@@ -805,7 +973,7 @@ function prependHistoryEvents(events) {
   toolCards = {}
   historyPrependBox = staging
   events.forEach(function (item) {
-    renderNormalized(normalizeEvent(item))
+    renderSessionEvent(item, false)
   })
   /* 旧页可能正好停在半截流式 delta 上：就地定稿，别把呼吸光标永远留在历史里 */
   finalizeStream()
@@ -839,6 +1007,8 @@ var historyHasMore = false /* 服务端报告还有更早的一页 */
 var historyOldestSeq = null /* 已加载事件里最早的 seq：下一页请求的 beforeSeq 游标 */
 var historyLoading = false /* 「加载更早」拉取在途：按钮防重入 */
 var historyPrependBox = null /* 非空 = 前插渲染模式：渲染管线改投该容器，滚动条不动 */
+var historyRendering = false
+var chatFollowTail = true
 
 /* 回合看门狗：回合在跑、却长时间没有任何事件 ⇒ 多半卡住了。
    只提示一次（不刷屏），并把"可以怎么办"写进去 —— 自动取消是危险的，交给用户决定。 */
@@ -856,6 +1026,19 @@ function squash(text) {
 function bindChatUi() {
   if (chatBound) return
   chatBound = true
+  var messages = $('messages')
+  if (messages !== null) messages.addEventListener('scroll', function () {
+    if (historyRendering || historyPrependBox !== null) return
+    chatFollowTail = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80
+    var latest = $('btnChatLatest')
+    if (chatFollowTail && latest !== null) latest.classList.add('hidden')
+  })
+  var latest = $('btnChatLatest')
+  if (latest !== null) latest.onclick = function () {
+    chatFollowTail = true
+    latest.classList.add('hidden')
+    scrollMessages()
+  }
   var toggle = $('btnChatSessions')
   if (toggle !== null) {
     toggle.onclick = function () {
@@ -933,6 +1116,7 @@ function toggleSessionPanel(show) {
   if (want) {
     updateEffectivePreset()
     loadSessions()
+    loadSessionTree()
   }
 }
 
@@ -1266,7 +1450,7 @@ function updateSendButton() {
   var send = $('btnSend')
   if (send === null) return
   var input = $('promptInput')
-  var empty = input === null || String(input.value || '').trim() === ''
+  var empty = (input === null || String(input.value || '').trim() === '') && state.attachments.length === 0
   var canPrompt = state.phase === 'ready' && state.scopes.indexOf('employee.prompt') >= 0
   send.disabled = empty || !canPrompt || state.selectedSessionId === null
 }
@@ -1494,6 +1678,35 @@ function appendErrorBar(text) {
   scrollMessages()
 }
 
+function turnFailureMessage(n) {
+  if (n.code === 'AUTH' || n.code === 'MISSING_CREDENTIAL' || n.code === 'INVALID_CREDENTIAL') {
+    return '模型接口认证失败，请检查此会话使用的密钥及访问权限。'
+  }
+  if (n.code === 'SERVER' || (n.code === 'PI_AI_ERROR' && /\bservice (?:is )?temporarily unavailable\b/i.test(n.text))) {
+    return '模型服务或接入网关暂时不可用，可稍后在此会话继续；持续出现时请检查模型服务。'
+  }
+  if (n.code === 'RATE_LIMIT') return '模型服务限流，可稍后在此会话继续。'
+  if (n.code === 'TIMEOUT') return '模型请求超时，可稍后在此会话继续。'
+  if (n.code === 'TRANSPORT') return '连接模型服务时中断，请检查节点到模型服务的网络连接。'
+  return n.text
+}
+
+function appendTurnError(n, live) {
+  var row = msgRow('err')
+  if (row === null) return
+  var bar = el('div', 'err-bar')
+  var label = live === true ? '本次回合失败' : '历史回合失败'
+  if (typeof n.atMs === 'number') label += ' · ' + new Date(n.atMs).toLocaleString('zh-CN', { hour12: false })
+  bar.appendChild(el('div', 'err-title', label))
+  bar.appendChild(el('div', 'err-message', turnFailureMessage(n)))
+  var details = el('details', 'err-details')
+  details.appendChild(el('summary', '', '错误详情'))
+  details.appendChild(el('pre', 'err-original', (n.code ? '错误码：' + n.code + '\n' : '') + '原始信息：' + n.text))
+  bar.appendChild(details)
+  row.appendChild(bar)
+  scrollMessages()
+}
+
 function appendSystem(text) {
   var box = renderBox()
   if (box === null) return
@@ -1540,7 +1753,7 @@ function renderNormalized(n, live) {
     case 'error':
       finalizeStream()
       if (live === true) setRunning(false)
-      appendErrorBar('回合失败：' + n.text)
+      appendTurnError(n, live)
       return
     case 'interaction':
       /* 历史回放也渲染（回看时能看到"当时卡在这里"），但不碰运行态 */
@@ -1593,13 +1806,24 @@ function onSessionEvent(payload) {
     (employeeId === '' || employeeId === state.selectedEmployeeId)
   var isSelectedSession = state.selectedSessionId !== null && (sessionId === '' || sessionId === state.selectedSessionId)
 
-      if (inChatWith && isSelectedSession) {
-        /* 任何事件都算"员工还在动"：看门狗据此判断是否卡住 */
-        turnLastEventAt = Date.now()
-        turnStallWarned = false
-        /* hidden 帧也可能驱动状态（turn/start → 忙碌），但永远不进对话区 */
-        if (n.type === 'turn/start') setRunning(true)
-    renderNormalized(n, true)
+  if (inChatWith && isSelectedSession) {
+    /* 任何事件都算"员工还在动"：看门狗据此判断是否卡住 */
+    turnLastEventAt = Date.now()
+    turnStallWarned = false
+    /* hidden 帧也可能驱动状态（turn/start → 忙碌），但永远不进对话区 */
+    var sync = state.historySync
+    if (sync !== null && sync.employeeId === state.selectedEmployeeId && sync.sessionId === state.selectedSessionId) {
+      sync.events.push(payload)
+    }
+    if (renderSessionEvent(payload, true) && state.chatHistory !== undefined && state.chatHistory !== null &&
+        state.chatHistory.employeeId === state.selectedEmployeeId && state.chatHistory.sessionId === state.selectedSessionId) {
+      state.chatHistory.payload.events.push(payload)
+      /* 定稿与回合结束落缓存；每个 delta 写 localStorage 会阻塞输入与滚动。 */
+      if (n.kind === 'user' || n.kind === 'interaction' || n.type === 'turn/end' ||
+          (n.kind === 'assistant' && n.stream !== 'delta')) {
+        rememberHistory(state.selectedEmployeeId, state.selectedSessionId, state.chatHistory.payload)
+      }
+    }
     return
   }
 
@@ -1670,8 +1894,13 @@ function promptAlreadyDelivered(employeeId, sessionId, text) {
 /** 把这一行标成「未送达」并挂上重发入口。 */
 
 /** 节点离线但指令已进 Hub 的离线邮箱 —— 不是失败，但必须说清"还没送到"。 */
-function markPromptQueued(row, payload) {
-  var employeeId = state.selectedEmployeeId
+function promptDeliveryIsCurrent(delivery) {
+  return state.selectedEmployeeId === delivery.employeeId && state.selectedSessionId === delivery.sessionId &&
+    state.employeeSelectionVersion === delivery.selectionVersion && state.sessionOpenVersion === delivery.openVersion
+}
+
+function markPromptQueued(row, payload, delivery) {
+  var employeeId = delivery === undefined ? state.selectedEmployeeId : delivery.employeeId
   var nodeLabel = ''
   for (var i = 0; i < state.employees.length; i += 1) {
     if (String(state.employees[i].id || '') !== String(employeeId)) continue
@@ -1679,7 +1908,7 @@ function markPromptQueued(row, payload) {
     break
   }
   var length = payload !== null && typeof payload === 'object' && typeof payload.queueLength === 'number' ? payload.queueLength : null
-  appendSystem(
+  if (delivery === undefined || promptDeliveryIsCurrent(delivery)) appendSystem(
     '（节点' + (nodeLabel === '' ? '' : '「' + nodeLabel + '」') + '当前离线 —— 这条指令已排入队列' +
       (length === null ? '' : '（待发 ' + String(length) + ' 条）') +
       '，它上线后会自动送出）'
@@ -1691,7 +1920,7 @@ function markPromptQueued(row, payload) {
   row.appendChild(bar)
 }
 
-function markPromptUndelivered(row, text, pending) {
+function markPromptUndelivered(row, text, pending, delivery) {
   if (row === null) return
   row.classList.add('undelivered')
   if (row.querySelector('.msg-retry') !== null) return
@@ -1702,19 +1931,23 @@ function markPromptUndelivered(row, text, pending) {
     event.stopPropagation()
     row.classList.remove('undelivered')
     if (bar.parentNode !== null) bar.parentNode.removeChild(bar)
-    setRunning(true)
-    deliverPrompt(text, pending, row)
+    if (delivery === undefined || promptDeliveryIsCurrent(delivery)) setRunning(true)
+    deliverPrompt(text, pending, row, delivery)
   }
   bar.appendChild(button)
   row.appendChild(bar)
 }
 
 /** 发送（或重发）一条指令；row 是已经上屏的那一行，失败时就地标记它。 */
-function deliverPrompt(text, pending, row) {
-  var employeeId = state.selectedEmployeeId
-  var sessionId = state.selectedSessionId
+function deliverPrompt(text, pending, row, delivery) {
+  delivery = delivery || {
+    employeeId: state.selectedEmployeeId, sessionId: state.selectedSessionId,
+    selectionVersion: state.employeeSelectionVersion, openVersion: state.sessionOpenVersion
+  }
+  var employeeId = delivery.employeeId
+  var sessionId = delivery.sessionId
   if (employeeId === null || sessionId === null) return Promise.resolve()
-  return ensureSubscribed()
+  return (promptDeliveryIsCurrent(delivery) ? ensureSubscribed() : Promise.resolve(false))
     .then(function () {
       /* 节点侧 session.prompt 要的是纯文本 text（agent.ts 的 requireString）；
          附件另走 content 内容块（图片会被内联，模型直接看得见）。 */
@@ -1730,30 +1963,36 @@ function deliverPrompt(text, pending, row) {
     })
     .then(function (payload) {
       pushRaw('session.prompt 结果', payload)
-      /* 发出去了才清空 —— 失败时附件还留在待发条里，重发时一起带上 */
-      state.attachments = []
-      renderAttachStrip()
+      /* 只消费这次发送的附件；后来新增的附件与其他会话的附件不受旧回执影响。 */
+      if (promptDeliveryIsCurrent(delivery)) {
+        state.attachments = state.attachments.filter(function (item) { return pending.indexOf(item) < 0 })
+        renderAttachStrip()
+        updateSendButton()
+      }
       /* 节点离线但指令进了离线邮箱：不是失败（会被自动送出），但也不是"已送达" */
       if (payload !== null && typeof payload === 'object' && payload.queued === true) {
-        markPromptQueued(row, payload)
+        if (promptDeliveryIsCurrent(delivery)) setRunning(false)
+        markPromptQueued(row, payload, delivery)
       }
     })
     .catch(function (error) {
-      reportRpcError('session.prompt', error)
-      appendSystem('（' + describeFailure('session.prompt', error) + '）')
-      setRunning(false)
+      if (promptDeliveryIsCurrent(delivery)) {
+        reportRpcError('session.prompt', error)
+        appendSystem('（' + describeFailure('session.prompt', error) + '）')
+        setRunning(false)
+      } else pushRaw('其他会话的发送失败', error)
       var code = error !== null && typeof error === 'object' ? String(error.code || '') : ''
       /* 明确的拒绝（节点离线等）肯定没送达，不必查历史；只有"结果未知"才值得查 */
       if (code === 'node-offline') {
-        markPromptUndelivered(row, text, pending)
+        markPromptUndelivered(row, text, pending, delivery)
         return
       }
       promptAlreadyDelivered(employeeId, sessionId, text).then(function (delivered) {
         if (delivered === true) {
-          appendSystem('（查了一下：这条其实已经送达，员工那边应该在处理了 —— 不必重发）')
+          if (promptDeliveryIsCurrent(delivery)) appendSystem('（查了一下：这条其实已经送达，员工那边应该在处理了 —— 不必重发）')
           return
         }
-        markPromptUndelivered(row, text, pending)
+        markPromptUndelivered(row, text, pending, delivery)
       })
     })
 }

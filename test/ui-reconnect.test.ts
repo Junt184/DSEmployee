@@ -123,15 +123,13 @@ describe('重连后的会话续订（ensureSubscribed）', () => {
 describe('连接成功后的恢复块（结构护栏）', () => {
   /* 这段是"重连后接着用"的入口：少任何一行，症状都是"看起来已连接、实际没有实时输出"
      或"历史停在断线那一刻"。用源码断言钉住它 —— 它没法用单元测试跑（全是 DOM/网络）。 */
-  const block = CONSOLE_SOURCE.slice(
-    CONSOLE_SOURCE.indexOf("  if (state.selectedEmployeeId !== null) {\n    loadSessions()"),
-    CONSOLE_SOURCE.indexOf('  if (state.selectedEmployeeId !== null) {\n    loadSessions()') + 220,
-  )
+  const block = extractFunction('onHelloOk')
 
   it('重连后会重拉会话列表并重新打开选中会话', () => {
     assert.ok(block.length > 0, '找不到连接成功后的恢复块（这段代码可能被挪走了，请同步更新本测试）')
     assert.match(block, /loadSessions\(\)/, '恢复块里必须重拉会话列表')
-    assert.match(block, /openSession\(state\.selectedSessionId\)/, '恢复块里必须重新打开选中会话')
+    assert.match(block, /openSession\(restoringSession\)/, '恢复块里必须重新打开选中会话')
+    assert.match(block, /selectEmployee\(restoringEmployee\)/, '刷新后还没有会话时也必须恢复')
   })
 
   it('openSession 会重新订阅并重拉历史（恢复的另一半）', () => {

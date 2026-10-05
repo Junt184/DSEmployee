@@ -35,6 +35,8 @@ function loadEmployees() {
       })
       pruneAvatarCache(state.employees)
       renderEmployees()
+      if (typeof renderSessions === 'function') renderSessions()
+      if (typeof loadSessionTree === 'function') loadSessionTree()
       renderApprovals()
       updateEffectivePreset()
       loadNodeOptions()
@@ -792,6 +794,7 @@ function setView(view) {
      不回落的话会变成"所有页面一起隐身"—— 一屏空白，且没有任何报错。 */
   var target = Object.prototype.hasOwnProperty.call(VIEW_IDS, view) ? view : 'office'
   state.view = target
+  writeLocal(LS.lastView, target)
   /* 离开办公区就作废"正在改名"的意图：否则回到办公区时编辑器会突然弹回来 */
   if (target !== 'office') groupRenameIntent = null
   Object.keys(VIEW_IDS).forEach(function (key) {
@@ -1125,6 +1128,7 @@ function loadOfficeOrder() {
             : {}
       }
       renderEmployees()
+      if (typeof renderSessions === 'function') renderSessions()
     })
     .catch(function (error) {
       reportRpcError('office.order.get', error)
@@ -1534,9 +1538,11 @@ function pollOneDesk(employee) {
     syncDeskWatch(id)
     return Promise.resolve()
   }
+  var sessionRevision = typeof employeeSessionState === 'function' ? employeeSessionState(id).revision || 0 : 0
   return rpc('session.list', { employeeId: id })
     .then(function (payload) {
       var sessions = pickArray(payload, ['sessions', 'items', 'list'])
+      if (typeof cacheEmployeeSessions === 'function') cacheEmployeeSessions(id, sessions, sessionRevision)
       /* 同一员工多个 running 会话时取最近更新的一个 —— 小屏只有一块，显示此刻最活跃的 */
       var best = null
       sessions.forEach(function (session) {

@@ -531,7 +531,32 @@ function onHelloOk(payload) {
   /* toast 只报用户关心的事：连接成功三个字就够，hub id / role / 心跳参数不弹 */
   toast('已连接', 'ok')
 
-  loadEmployees()
+  /* 等目录到位再恢复；期间的用户选择优先于重连前的快照。 */
+  var restoringEmployee = state.selectedEmployeeId
+  var restoringSession = state.selectedSessionId
+  var restoringSelection = state.employeeSelectionVersion
+  var restoringOpen = state.sessionOpenVersion
+  var restoringView = state.view
+  loadEmployees().then(function () {
+    if (state.phase !== 'ready') return
+    /* 启动时这些页面尚未联网；目录到位后补拉当前页面。 */
+    if (state.view === restoringView && ['officeRoom', 'jobs', 'health', 'llm'].indexOf(restoringView) >= 0) {
+      VIEW_LOADERS[restoringView]()
+    }
+    if (state.phase !== 'ready' || state.selectedEmployeeId !== restoringEmployee ||
+        state.employeeSelectionVersion !== restoringSelection || state.sessionOpenVersion !== restoringOpen) return
+    if (restoringEmployee === null || employeeById(restoringEmployee) === null) return
+    if (restoringSession === null) {
+      if (state.view === 'chat') return selectEmployee(restoringEmployee)
+      return
+    }
+    return loadSessions().then(function () {
+      if (state.phase !== 'ready' || state.selectedEmployeeId !== restoringEmployee ||
+          state.selectedSessionId !== restoringSession || state.employeeSelectionVersion !== restoringSelection ||
+          state.sessionOpenVersion !== restoringOpen) return
+      return openSession(restoringSession)
+    })
+  })
   loadApprovals()
   loadOfficeOrder()
   if (state.scopes.indexOf('device.pair') >= 0) {
@@ -554,10 +579,6 @@ function onHelloOk(payload) {
     (aside.skills === null || aside.files === null)
   ) {
     loadEmployeeAside()
-  }
-  if (state.selectedEmployeeId !== null) {
-    loadSessions()
-    if (state.selectedSessionId !== null) openSession(state.selectedSessionId)
   }
 }
 
@@ -1145,6 +1166,7 @@ function notify(title, body) {
 
 function pushRaw(label, payload) {
   state.rawCount += 1
+  if (location.search.indexOf('debug=1') < 0) return
   var box = $('rawLog')
   if (box === null) return
   var entry = el('div', 'raw-entry')

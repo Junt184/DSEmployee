@@ -25,6 +25,9 @@ export const IMAGE_PLACEHOLDER = '[图片]'
 
 /** 历史版单字符串字段长度上限（字符数），超过即截断。 */
 export const HISTORY_MAX_STRING_CHARS = 4_000
+/** 完整用户/助手正文使用独立预算，避免刷新后把普通长报告裁成工具摘要。 */
+export const MESSAGE_MAX_STRING_CHARS = 64_000
+export const MESSAGE_MAX_EVENT_BYTES = 512 * 1_024
 /** 实时版单字符串字段长度上限（字符数），比历史版更紧 —— 实时帧逐条上线。 */
 export const LIVE_MAX_STRING_CHARS = 2_000
 /** 递归遍历深度上限（spec：深度 ≤ 6；dsh 事件文本实测都在这个深度内）。 */
@@ -124,9 +127,12 @@ export function sanitizeHistoryEvents(
   for (const entry of events) {
     const type = historyEntryType(entry)
     if (type !== undefined && DROPPED_HISTORY_TYPES.has(type)) continue
-    const slim = sanitizeValue(entry, maxStringChars, 0, new Set())
+    const isMessage = type === 'user/message' || type === 'assistant/message'
+    const stringBudget = isMessage && options.maxStringChars === undefined ? MESSAGE_MAX_STRING_CHARS : maxStringChars
+    const eventBudget = isMessage && options.maxEventBytes === undefined ? MESSAGE_MAX_EVENT_BYTES : maxEventBytes
+    const slim = sanitizeValue(entry, stringBudget, 0, new Set())
     const bytes = byteLength(slim)
-    out.push(bytes <= maxEventBytes ? slim : replaceEntryData(slim, bytes))
+    out.push(bytes <= eventBudget ? slim : replaceEntryData(slim, bytes))
   }
   return out
 }
@@ -186,7 +192,11 @@ export function pageEvents(events: unknown, options: PageOptions = {}): PageResu
  */
 export function sanitizeLiveEvent(event: unknown, options: SanitizeLiveOptions = {}): unknown {
   const maxBytes = options.maxBytes ?? DEFAULT_LIVE_MAX_BYTES
-  const slim = sanitizeValue(event, LIVE_MAX_STRING_CHARS, 0, new Set())
+  const payload = isPlainObject(event) ? event['payload'] : undefined
+  const inner = isPlainObject(payload) ? payload['event'] : undefined
+  const type = isPlainObject(inner) ? inner['type'] : isPlainObject(event) ? event['type'] : undefined
+  const isMessage = type === 'user/message' || type === 'assistant/message'
+  const slim = sanitizeValue(event, isMessage ? MESSAGE_MAX_STRING_CHARS : LIVE_MAX_STRING_CHARS, 0, new Set())
   const bytes = byteLength(slim)
   return bytes <= maxBytes ? slim : replaceLiveData(slim, bytes)
 }

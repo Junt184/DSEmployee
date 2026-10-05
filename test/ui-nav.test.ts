@@ -154,6 +154,7 @@ function makeHarness(): Harness {
     loaded,
     painted,
     groupRenameIntent: null,
+    LS: { lastView: 'dse.lastView' }, writeLocal: () => {},
     viewTabs,
     $: (id: string): FakeNode | null =>
       id === 'viewTabs' ? (viewTabs as unknown as FakeNode) : (nodes[id] ?? null),

@@ -87,6 +87,8 @@ function applyPositionShell(employee) {
   chat.classList.toggle('layout-secretary', isSecretary)
   chat.classList.toggle('layout-quad', isQuad || isQuadChat)
   chat.classList.toggle('layout-quad-chat', isQuadChat)
+  if (typeof renderSessions === 'function') renderSessions()
+  if (typeof loadSessionTree === 'function') loadSessionTree()
   setHidden($('secretaryStage'), !isSecretary)
   setHidden($('btnBoard'), !isSecretary)
   /* 另一个外壳的收尾：退出四宫格要把格位状态清干净（否则下次进来会闪旧数字），

@@ -500,6 +500,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
       </div>
     </div>
     <div class="chat-sessions hidden" id="sessionPanel">
+      <div class="cs-tree-label">员工与会话<span class="muted">点击名字切换员工</span></div>
       <ul class="list" id="sessionList"></ul>
       <input id="newSessionTitle" class="cs-create-input" type="text" placeholder="会话名称（可选）" maxlength="80" autocomplete="off">
       <details class="chat-advanced">
@@ -528,6 +529,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
     </div>
     <div class="messages" id="messages"></div>
     <div class="composer">
+      <button id="btnChatLatest" class="ghost chat-latest hidden" type="button">有新消息 · 回到最新</button>
       <div class="attach-strip" id="attachStrip"></div>
       <div class="composer-inner">
         <button id="btnAttach" class="ghost chat-attach" aria-label="发文件" title="发文件给员工（图片还会直接让员工看见）">📎</button>

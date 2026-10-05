@@ -123,8 +123,8 @@ export interface DispatchOutcome {
 /**
  * 真正派发一轮：把任务的指令作为一条普通消息发给目标员工。
  *
- * 会话怎么定：任务里记着就用它；否则问节点的会话列表取最近活跃的那个，
- * 一个都没有就新建一个 —— 然后把 id 记回任务里（离线兜底要用）。
+ * 会话怎么定：任务里记着就用它；否则为该任务新建独立会话，
+ * 不把周期指令混入用户最近打开的人工对话。
  */
 export async function dispatchJob(hub: Hub, job: ScheduleJob): Promise<DispatchOutcome> {
   const state = hub.state()
@@ -147,26 +147,15 @@ export async function dispatchJob(hub: Hub, job: ScheduleJob): Promise<DispatchO
       }
     }
     try {
-      const listed = await hub.requestToNode(employee.nodeId, 'session.list', {
+      const created = await hub.requestToNode(employee.nodeId, 'session.create', {
         employeeId: employee.id,
+        title: `定时任务：${job.name}`,
+        sessionId: `schedule_${job.jobId}_${employee.id}`,
       })
-      const sessions = Array.isArray((listed.payload as { sessions?: unknown })?.sessions)
-        ? ((listed.payload as { sessions: Array<Record<string, unknown>> }).sessions ?? [])
-        : []
-      const newest = sessions
-        .slice()
-        .sort((a, b) => Number(b['updatedAt'] ?? b['updatedAtMs'] ?? 0) - Number(a['updatedAt'] ?? a['updatedAtMs'] ?? 0))[0]
-      sessionId = typeof newest?.['sessionId'] === 'string' ? String(newest['sessionId']) : ''
-      if (sessionId === '') {
-        const created = await hub.requestToNode(employee.nodeId, 'session.create', {
-          employeeId: employee.id,
-          title: `定时任务：${job.name}`,
-        })
-        sessionId =
-          typeof (created.payload as { sessionId?: unknown })?.sessionId === 'string'
-            ? String((created.payload as { sessionId: string }).sessionId)
-            : ''
-      }
+      if (created.ok !== true) return { status: 'failed', error: created.error?.message ?? '无法创建任务会话' }
+      sessionId = typeof (created.payload as { sessionId?: unknown })?.sessionId === 'string'
+        ? String((created.payload as { sessionId: string }).sessionId)
+        : ''
     } catch (error) {
       return {
         status: 'failed',
