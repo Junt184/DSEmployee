@@ -65,7 +65,8 @@ function harness() {
     employees: [{ id: 'emp_a', name: '小艾' }, { id: 'emp_b', name: '阿澈' }],
     selectedEmployeeId: 'emp_a' as string | null, selectedSessionId: 'a1' as string | null,
     sessions: [{ sessionId: 'a1', name: '会话 A' }] as Session[],
-    employeeSessions: new Map<string, Entry>(), collapsedSessionEmployees: new Set<string>(),
+    /* 本组操作会话行的场景从用户已主动展开的状态开始。 */
+    employeeSessions: new Map<string, Entry>(), expandedSessionEmployees: new Set<string>(['emp_a', 'emp_b']),
     expandedArchives: new Set<string>(), sessionArchivePending: new Map<string, Promise<boolean>>(),
     employeeSelectionVersion: 0, sessionOpenVersion: 0, subscribed: null as string | null, attachments: [],
     historySync: null, sessionEventSeqs: new Set(),
@@ -142,7 +143,7 @@ describe('普通聊天页的员工会话树', () => {
     assert.equal(h.list.children[0]!.children[0]!.children[0]!.attributes['aria-expanded'], 'false')
     assert.equal(h.list.children[0]!.children[1]!.classList.contains('hidden'), true)
     h.scope.renderSessions()
-    assert.equal(h.state.collapsedSessionEmployees.has('emp_a'), true)
+    assert.equal(h.state.expandedSessionEmployees.has('emp_a'), false)
     assert.equal(h.list.children[1]!.children[1]!.children[0]!.attributes['aria-current'], undefined)
   })
 
@@ -159,14 +160,14 @@ describe('普通聊天页的员工会话树', () => {
 
   it('点击员工名字切换员工并恢复最近会话，保留其他员工的折叠状态', async () => {
     const h = harness()
-    h.state.collapsedSessionEmployees.add('emp_a')
+    h.state.expandedSessionEmployees.delete('emp_a')
     h.scope.renderSessions()
     h.list.children[1]!.children[0]!.children[1]!.onclick!()
     h.calls[0]!.resolve({ sessions: [{ sessionId: 'b1', name: '最近会话', updatedAt: 20 }] })
     await flush()
     assert.equal(h.state.selectedEmployeeId, 'emp_b')
     assert.equal(h.state.selectedSessionId, 'b1')
-    assert.equal(h.state.collapsedSessionEmployees.has('emp_a'), true)
+    assert.equal(h.state.expandedSessionEmployees.has('emp_a'), false)
   })
 
   it('在另一员工分组下新建会话只为该员工创建一次', async () => {
@@ -195,7 +196,7 @@ describe('普通聊天页的员工会话树', () => {
   it('仅为展开且没有缓存的员工补拉会话', () => {
     const h = harness()
     h.state.employeeSessions.delete('emp_b')
-    h.state.collapsedSessionEmployees.add('emp_b')
+    h.state.expandedSessionEmployees.delete('emp_b')
     h.scope.loadSessionTree()
     assert.equal(h.calls.length, 0)
     h.scope.renderSessions()

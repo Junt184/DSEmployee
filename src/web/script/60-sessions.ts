@@ -67,7 +67,6 @@ function selectEmployee(employeeId, options) {
   state.historySync = null
   state.subscribed = null
   state.sessions = []
-  state.collapsedSessionEmployees.delete(employeeId)
   var cached = employeeSessionState(employeeId)
   if (cached.sessions !== null) state.sessions = cached.sessions
   turnRunning = false
@@ -301,7 +300,7 @@ function loadSessionTree() {
   if (!isRegularSessionTree() || state.phase !== 'ready' || state.view !== 'chat') return
   state.employees.forEach(function (employee) {
     var id = String(employee.id || '')
-    if (id === '' || state.collapsedSessionEmployees.has(id)) return
+    if (id === '' || !state.expandedSessionEmployees.has(id)) return
     var entry = employeeSessionState(id)
     if (entry.sessions === null && !entry.loading && entry.error === '') loadSessions(id, true)
   })
@@ -485,7 +484,7 @@ function renderSessionTree(list) {
     section.members.forEach(function (employee) {
       var id = String(employee.id || '')
       if (id === '') return
-      var collapsed = state.collapsedSessionEmployees.has(id)
+      var collapsed = !state.expandedSessionEmployees.has(id)
       var group = el('li', 'cs-employee' + (id === state.selectedEmployeeId ? ' selected' : ''))
       group.setAttribute('data-employee-id', id)
       var head = el('div', 'cs-employee-head')
@@ -497,11 +496,11 @@ function renderSessionTree(list) {
       children.id = 'employeeSessions_' + id
       toggle.setAttribute('aria-controls', children.id)
       toggle.onclick = function () {
-        if (state.collapsedSessionEmployees.has(id)) {
-          state.collapsedSessionEmployees.delete(id)
+        if (!state.expandedSessionEmployees.has(id)) {
+          state.expandedSessionEmployees.add(id)
           var entry = employeeSessionState(id)
           if (entry.sessions === null || entry.error !== '') loadSessions(id, true)
-        } else state.collapsedSessionEmployees.add(id)
+        } else state.expandedSessionEmployees.delete(id)
         renderSessions()
       }
       var choose = el('button', 'ghost cs-employee-select')
@@ -519,11 +518,6 @@ function renderSessionTree(list) {
       choose.setAttribute('aria-pressed', id === state.selectedEmployeeId ? 'true' : 'false')
       choose.onclick = function () {
         if (state.selectedEmployeeId !== id) selectEmployee(id)
-        else {
-          state.collapsedSessionEmployees.delete(id)
-          renderSessions()
-          loadSessionTree()
-        }
       }
       head.appendChild(toggle)
       head.appendChild(choose)

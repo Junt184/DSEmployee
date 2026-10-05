@@ -453,7 +453,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
     </section>
   </section>
 
-  <section class="hidden panel-collapsed" id="viewChat">
+  <section class="hidden" id="viewChat">
     <!-- ── 秘书页外壳（岗位 layout="secretary" 时才显示；其余岗位这一页原样不动）──
          左立绘 / 右对话（气泡区独立滚动 + galgame 对话框），顶部一个下拉箭头拉出全屏看板。
          立绘现在是**占位剪影**：真素材（部件式帧图）到位后由 script/67-secretary.ts 换上，
@@ -487,7 +487,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
         <button id="btnNewSession" class="ghost">新会话</button>
         <!-- 本页皮肤（日间 / 作业室）：**只属于四宫格那一页**，其余页面这一页与从前一样 -->
         <button id="btnQuadSkin" class="ghost quad-skin-btn" aria-pressed="false">🖥️ 作业室</button>
-        <!-- 左右两栏的折叠开关各管各的；左栏默认收起，右栏沿用设备偏好。
+        <!-- 左右两栏的折叠开关各管各的，分别沿用设备偏好。
              左栏只在 ≥1200px 常驻（中档与窄屏的左栏是上面那个「会话」抽屉），
              所以 #btnPanel 也只在那一档出现；右栏窄屏根本摆不下。两个按钮都由 CSS
              控可见性 —— 宁可不给，也不给一个按了没反应的死键。
@@ -495,7 +495,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
              ⚠️ 文案必须**说清它是个折叠开关**。原来只写「会话」「上下文」，与上面的
              「会话」抽屉、与"切到某某页"长得一样，真实反馈是"找不到收侧栏的按钮"。
              所以写成「…栏折叠」；收起后由 JS 改成「…栏展开」—— 动作变了还喊"折叠"就是假话。 -->
-        <button id="btnPanel" class="ghost" aria-pressed="false" title="展开左侧的会话栏">会话栏展开</button>
+        <button id="btnPanel" class="ghost" aria-pressed="false" title="收起左侧的会话栏">会话栏折叠</button>
         <button id="btnAside" class="ghost" aria-pressed="false" title="收起右侧的上下文栏">上下文栏折叠</button>
       </div>
     </div>

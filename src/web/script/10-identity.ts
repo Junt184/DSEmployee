@@ -29,11 +29,11 @@ var state = {
   employeeNames: new Map(),
   selectedEmployeeId: null,
   sessions: [],
-  /* 普通聊天页的员工会话树：列表按员工缓存，折叠状态在切换员工时保留。 */
+  /* 默认只显示员工；仅记录用户主动展开的会话分组，切换员工不会自动展开。 */
   employeeSessions: new Map(),
   expandedArchives: new Set(),
   sessionArchivePending: new Map(),
-  collapsedSessionEmployees: new Set(),
+  expandedSessionEmployees: new Set(),
   employeeSelectionVersion: 0,
   sessionOpenVersion: 0,
   selectedSessionId: null,
@@ -55,8 +55,8 @@ var state = {
   reconnectTimer: null,
   /* 右栏（员工上下文）是否展开：按设备存 localStorage，见 applyAsideVisible */
   asideVisible: true,
-  /* 左栏每次打开页面默认收起，点击后展开；与右栏的设备偏好互不影响。 */
-  panelVisible: false,
+  /* 整个左栏沿用设备偏好；员工内部的会话分组另行控制，默认收起。 */
+  panelVisible: true,
   /* 岗位目录（Hub 侧共享数据）：控制台只做缓存，用于下拉候选与工位徽章 */
   positions: [],
   expectClose: false,

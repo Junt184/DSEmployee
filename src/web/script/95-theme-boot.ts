@@ -128,8 +128,8 @@ function init() {
   applyDensity(readLocal(LS.density) === 'comfortable' ? 'comfortable' : 'compact')
   /* 右栏默认展开（宽屏/中档都摆得下），读过存档就用存档 */
   applyAsideVisible(currentAsideVisible())
-  /* 左栏每次打开页面都收起，只有点击才展开；忽略旧版存下的展开偏好。 */
-  applyPanelVisible(false)
+  /* 整个会话栏沿用设备偏好；员工内部默认只列名字，不自动展示会话。 */
+  applyPanelVisible(currentPanelVisible())
   loadUnread()
   renderEmployees()
   renderApprovals()
