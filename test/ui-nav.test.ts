@@ -95,6 +95,7 @@ interface FakeNode {
   attrs: Record<string, string>
   classList: { toggle: (name: string, on: boolean) => void; contains: (name: string) => boolean }
   getAttribute: (name: string) => string | null
+  querySelectorAll: (selector: string) => FakeNode[]
 }
 
 function makeNode(attrs: Record<string, string> = {}, hidden = false): FakeNode {
@@ -110,11 +111,27 @@ function makeNode(attrs: Record<string, string> = {}, hidden = false): FakeNode 
       contains: (name: string): boolean => classes.has(name),
     },
     getAttribute: (name: string): string | null => (name in attrs ? String(attrs[name]) : null),
+    /* 空数组就够：员工配置页的入口会给标签挂 onclick，而这一测只问"拉了哪几份数据"。
+       给多少个按钮挂上了处理器是 markup 那一侧的事（另有测试盯着）。 */
+    querySelectorAll: (_selector: string): FakeNode[] => [],
   }
 }
 
+/** 真实 `openEmployeeConfig` / `setConfigPage` 会摸到的 id —— 全是 null 会提前 return。 */
+const CONFIG_PAGE_IDS = [
+  'configPages',
+  'configTabs',
+  'configSearch',
+  'configMobileEmployee',
+  'btnBatchModels',
+  'configEmployees',
+  'configServices',
+  'configNodes',
+]
+
 interface Harness {
   setView: (view: unknown) => void
+  setConfigPage: (page: unknown) => void
   setScopes: (scopes: string[]) => void
   nodes: Record<string, FakeNode>
   tabButtons: FakeNode[]
@@ -135,6 +152,7 @@ interface Harness {
 function makeHarness(): Harness {
   const nodes: Record<string, FakeNode> = {}
   for (const [view, id] of Object.entries(EXPECTED_IDS)) nodes[id] = makeNode({}, view !== 'office')
+  for (const id of CONFIG_PAGE_IDS) nodes[id] = makeNode()
   const tabButtons = ['office', 'officeRoom', 'approvals', 'jobs', 'devices', 'health', 'llm'].map((view) =>
     makeNode({ 'data-view': view }),
   )
@@ -148,7 +166,16 @@ function makeHarness(): Harness {
   }
 
   const context = vm.createContext({
-    state: { view: 'office', scopes: ['device.pair'] },
+    /* configPage / configSearch / configPending 是真实 setConfigPage 与
+       openEmployeeConfig 会读的字段；configEmployee 返回 null 表示"没有选中员工"，
+       于是它不会去拉单个人的详情 —— 这一测只关心页面级的取数。 */
+    state: {
+      view: 'office',
+      scopes: ['device.pair'],
+      configPage: 'employees',
+      configSearch: '',
+      configPending: {},
+    },
     nodes,
     tabButtons,
     loaded,
@@ -166,16 +193,23 @@ function makeHarness(): Harness {
        而那时连接还没建立 —— 见 30-office.ts 里那段注释）。 */
     loadPairingWindow: (): void => void loaded.push('pairingWindow'),
     refreshHealth: (): void => void loaded.push('health'),
+    /* 员工配置页：**入口跑真源码**（openEmployeeConfig / setConfigPage），
+       只替身掉它拉数据的那几个叶子函数 —— 把入口整个替身掉的话，
+       "进入 llm 页会拉哪些数据"就变成在断言替身自己了。 */
     loadLlmEndpoints: (): void => void loaded.push('llm.endpoints'),
     loadNodePermissions: (): void => void loaded.push('llm.nodePermissions'),
     renderLlmConfig: (): void => void loaded.push('llm'),
+    configEmployee: (): null => null,
   })
   vm.runInContext(
     [
       extractObjectLiteral('VIEW_IDS'),
       extractObjectLiteral('VIEW_LOADERS'),
+      extractFunction('openEmployeeConfig'),
+      extractFunction('setConfigPage'),
       extractFunction('setView'),
       'globalThis.__setView = setView',
+      'globalThis.__setConfigPage = setConfigPage',
     ].join('\n'),
     context,
   )
@@ -183,6 +217,9 @@ function makeHarness(): Harness {
   return {
     setView: (view: unknown): void => {
       vm.runInContext(`__setView(${JSON.stringify(view)})`, context)
+    },
+    setConfigPage: (page: unknown): void => {
+      vm.runInContext(`__setConfigPage(${JSON.stringify(page)})`, context)
     },
     setScopes: (scopes: string[]): void => {
       vm.runInContext(`state.scopes = ${JSON.stringify(scopes)}`, context)
@@ -198,10 +235,13 @@ function makeHarness(): Harness {
   }
 }
 
-/** 某一刻哪些容器是可见的（切完页应当只剩一个）。 */
+/** 某一刻哪些**一级视图容器**是可见的（切完页应当只剩一个）。
+ *  只看 `viewXxx` 这层：员工配置页里面还有子容器（configEmployees 等），
+ *  它们的显隐由子页标签决定，混进来会让"每次只显一页"这句话读起来不成立。 */
 function visibleViews(harness: Harness): string[] {
+  const viewIds = new Set(Object.values(EXPECTED_IDS))
   return Object.entries(harness.nodes)
-    .filter(([, node]) => !node.classes.has('hidden'))
+    .filter(([id, node]) => viewIds.has(id) && !node.classes.has('hidden'))
     .map(([id]) => id)
 }
 
@@ -300,8 +340,19 @@ describe('setView 的真实行为（跑交付脚本里的真源码）', () => {
     harness.setView('approvals')
     assert.deepEqual(harness.loaded, ['health', 'approvals'])
     harness.setView('llm')
-    /* 模型配置页两层：端点库要拉（库是共享事实），员工那半用注册摘要直接渲染 */
-    assert.deepEqual(harness.loaded, ['health', 'approvals', 'llm.endpoints', 'llm.nodePermissions', 'llm'])
+    /* 员工配置页：端点库是共享事实，进页面就得拉；员工那半用注册摘要直接渲染。
+       节点权限**不在这里拉** —— 它归「节点设置」子页，进去才读（见下一条）。 */
+    assert.deepEqual(harness.loaded, ['health', 'approvals', 'llm.endpoints', 'llm'])
+  })
+
+  it('节点权限只在进入「节点设置」子页时才读', () => {
+    /* 重构前是进页面就无条件拉三份（端点库 + 节点权限 + 员工配置），
+       而其中两份在另外两个子页里 —— 重构正是为了"只看你现在这一页"。 */
+    const harness = makeHarness()
+    harness.setView('llm')
+    assert.deepEqual(harness.loaded, ['llm.endpoints', 'llm'])
+    harness.setConfigPage('nodes')
+    assert.deepEqual(harness.loaded, ['llm.endpoints', 'llm', 'llm.nodePermissions'])
   })
 
   it('办公区 / 对话这两页不重复拉数据（它们靠连接与事件推送维护）', () => {

@@ -117,6 +117,7 @@ var LS = {
   tokenDevice: 'dse.deviceToken.deviceId',
   lastEmployee: 'dse.lastEmployeeId',
   lastView: 'dse.lastView',
+  configEmployee: 'dse.configEmployee',
   /* 每个员工上次打开的会话 id（{员工id: 会话id}），刷新与重新进入时优先恢复。
      会话本身是节点的事实，本地 id 也为节点离线时保留发送入口。 */
   lastSessions: 'dse.lastSessions',

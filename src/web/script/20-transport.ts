@@ -400,6 +400,10 @@ function onEvent(frame) {
     if (positionsCard !== null && positionsCard.open === true) renderPositionAdmin()
     /* 正停在体检页就顺手刷新（不在这一页一律不拉，避免常态开销） */
     if (state.view === 'health') refreshHealth()
+    if (state.view === 'llm') {
+      if (payload && payload.llmEndpoints === true) loadLlmEndpoints()
+      if (state.configEmployeeId && !state.configPending[state.configEmployeeId]) loadLlmDetail(state.configEmployeeId)
+    }
     return
   }
   if (event === 'job.changed' || event === 'job.ran') {
@@ -1123,6 +1127,10 @@ function syncControls() {
     state.canResolve = canResolve
     renderApprovals()
     renderDevices()
+  }
+  if (state.view === 'llm') {
+    syncConfigControls(); syncBatchControls(); syncEndpointControls()
+    if (state.configPage === 'nodes') renderNodePermissions()
   }
 }
 

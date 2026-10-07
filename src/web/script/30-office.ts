@@ -41,6 +41,7 @@ function loadEmployees() {
       updateEffectivePreset()
       loadNodeOptions()
       loadPositions()
+      if (state.view === 'llm') renderLlmConfig()
       /* 选中的那位刚好从离线变回在线：把会话重新接上（强制重订 + 重读历史）。
          必须在 state.employees 更新之后判 —— 判定读的就是这里的 nodeOnline。 */
       if (noteNodeOnline(state.employees) === true) resumeSelectedSession()
@@ -781,11 +782,7 @@ var VIEW_LOADERS = {
     refreshHealth()
   },
   llm: function () {
-    /* 两层：端点库 + 员工模型。员工行收起时用的"当前模型"直接来自注册摘要，
-       不必逐个员工去拉配置（12 个员工 = 12 次跨公网往返）。 */
-    loadLlmEndpoints()
-    loadNodePermissions()
-    renderLlmConfig()
+    openEmployeeConfig()
   }
 }
 
@@ -890,88 +887,14 @@ function buildDesk(employee, groupKey) {
   /* 管理动作统一受 employee.manage 控制：只读控制台不应该先显示一个必然失败的编辑器。 */
   var canManage = state.scopes.indexOf('employee.manage') >= 0
   var editButton = el('button', 'ghost desk-action', '编辑')
-  var editor = el('div', 'desk-group-edit hidden')
-  var nameInput = el('input', '')
-  nameInput.type = 'text'
-  nameInput.placeholder = '员工名（不可为空）'
-  nameInput.value = String(employee.name || '')
-  nameInput.maxLength = 64
-  /* 分组是选择而不是自由输入：现有组下拉 + 行内新建（与新建员工表单共用） */
-  var groupPicker = buildGroupPicker(employee.group)
-  /* 岗位同样用下拉（可新增）：已有员工也能改岗位，不必重建工作区 */
-  var positionPicker = buildPositionPicker(employee.position)
-  /* 初始提示词：预填现值；留空 = 清除（与分组同款 null 约定，见保存按钮） */
-  var introInput = el('textarea', 'desk-intro-edit')
-  introInput.rows = 2
-  introInput.placeholder = '初始提示词（留空 = 清除）：一句话身份/设定，每次会话开头注入'
-  introInput.value = typeof employee.intro === 'string' ? employee.intro : ''
-  introInput.maxLength = 500
-  var saveButton = el('button', 'primary', '保存')
-  var removeButton = el('button', 'ghost danger', '注销（保留工作区）')
-  editor.appendChild(nameInput)
-  editor.appendChild(positionPicker.root)
-  editor.appendChild(groupPicker.root)
-  editor.appendChild(introInput)
-  editor.appendChild(saveButton)
-  editor.appendChild(removeButton)
   editButton.onclick = function (event) {
     event.stopPropagation()
-    editor.classList.toggle('hidden')
+    state.configEmployeeId = id
+    state.configTab = 'identity'
+    writeLocal(LS.configEmployee + '.' + BOOT.hubId, id)
+    setView('llm')
+    renderLlmConfig(true)
   }
-  nameInput.onclick = function (event) {
-    event.stopPropagation()
-  }
-  groupPicker.root.onclick = function (event) {
-    event.stopPropagation()
-  }
-  positionPicker.root.onclick = function (event) {
-    event.stopPropagation()
-  }
-  introInput.onclick = function (event) {
-    event.stopPropagation()
-  }
-  saveButton.onclick = function (event) {
-    event.stopPropagation()
-    var name = String(nameInput.value || '').trim()
-    var value = groupPicker.read()
-    var intro = String(introInput.value || '').trim()
-    if (name === '') {
-      toast('员工名不能为空', 'bad')
-      return
-    }
-    var patch = { employeeId: id, group: value === '' ? null : value, intro: intro === '' ? null : intro }
-    /* 名字没变就不传，避免无谓重写 AGENTS.md（改名会重生身份行） */
-    if (name !== String(employee.name || '')) patch.name = name
-    /* 岗位：选中已存在的直接用；选了「＋ 新增岗位」先 upsert 再加进 patch */
-    resolvePositionChoice(positionPicker.read())
-      .then(function (position) {
-        if (position !== '') patch.position = position
-        /* 留空即清除：服务端约定 null = 删除 manifest 里的 group / intro 键 */
-        return rpc('employee.update', patch)
-      })
-      .then(function () {
-        toast('已更新「' + name + '」', 'ok')
-        return loadEmployees()
-      })
-      .catch(function (error) {
-        reportRpcError('employee.update', error)
-      })
-  }
-  removeButton.onclick = function (event) {
-    event.stopPropagation()
-    if (!window.confirm('注销「' + String(employee.name || id) + '」？员工身份会从办公区移除，但工作区文件会保留。')) return
-    removeButton.disabled = true
-    rpc('employee.remove', { employeeId: id }, { idempotencyKey: randomId() })
-      .then(function () {
-        toast('已注销「' + String(employee.name || id) + '」，工作区已保留', 'ok')
-        return loadEmployees()
-      })
-      .catch(function (error) {
-        removeButton.disabled = false
-        reportRpcError('employee.remove', error)
-      })
-  }
-  desk.appendChild(editor)
 
   /* 换头像：与「改分组」同款就地展开小面板（用户明确讨厌弹窗） */
   var avatarButton = el('button', 'ghost desk-action', '换头像')
@@ -998,8 +921,7 @@ function buildDesk(employee, groupKey) {
   fileInput.onclick = function (event) {
     event.stopPropagation()
   }
-  /* 操作行（网格第三行）：「编辑」「换头像」各占一格，触控目标 ≥44px；
-     两个就地展开的小面板留在网格外，展开时把卡片往下撑，不挤压上半部 */
+  /* 编辑进入统一的员工设置；头像保留工位上的快捷入口。 */
   if (canManage) {
     var actions = el('div', 'desk-actions')
     actions.appendChild(editButton)

@@ -427,29 +427,44 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
   </section>
 
   <section class="col hidden" id="viewLlm">
-    <section class="card">
-      <h2>端点库 <button id="btnNewEndpoint" class="ghost">新增端点</button></h2>
-      <div class="muted">
-        BaseURL + Key 在这里输一次，多个员工复用。Key 存在 Hub 与节点上，界面只回掩码；
-        改了 BaseURL 或 Key 会**自动同步**到所有用到它的员工。别名由你自己拼（如 gpt5.6-noelle）。
+    <div class="config-heading"><div><h2>员工配置</h2><p class="muted">设置员工使用的模型、基本信息与审批方式。</p></div></div>
+    <nav class="config-pages" id="configPages" aria-label="配置范围">
+      <button class="ghost" data-config-page="employees" aria-pressed="true">员工设置</button>
+      <button class="ghost" data-config-page="services" aria-pressed="false">模型服务</button>
+      <button class="ghost" data-config-page="nodes" aria-pressed="false">节点设置</button>
+    </nav>
+    <section id="configEmployees">
+      <div class="config-toolbar"><span class="muted">选择员工后，在右侧修改配置</span><button id="btnBatchModels" class="primary">批量设置模型</button></div>
+      <section id="configBatchPanel" class="card hidden" aria-label="批量设置模型"></section>
+      <div class="config-workspace">
+        <aside class="config-directory" aria-label="员工列表">
+          <label class="config-field config-search">查找员工<input id="configSearch" type="search" placeholder="搜索姓名、岗位、分组"></label>
+          <label class="config-field config-mobile-picker">选择员工<select id="configMobileEmployee"></select></label>
+          <div id="configEmployeeList"></div>
+        </aside>
+        <section class="config-detail" aria-label="当前员工配置">
+          <div id="configEmployeeHeading"></div>
+          <nav class="config-tabs" id="configTabs" aria-label="员工设置分区">
+            <button class="ghost" data-config-tab="models" aria-pressed="true">模型</button>
+            <button class="ghost" data-config-tab="identity" aria-pressed="false">基本信息</button>
+            <button class="ghost" data-config-tab="approval" aria-pressed="false">审批与权限</button>
+          </nav>
+          <div id="configEmployeeMessage" class="config-message hidden" role="status" aria-live="polite"></div>
+          <div id="llmConfigList"></div>
+        </section>
       </div>
+    </section>
+    <section id="configServices" class="card hidden">
+      <h2>共享模型服务 <button id="btnNewEndpoint" class="ghost">新增服务</button></h2>
+      <p class="muted">接口与密钥配置一次，供多位员工选择使用。修改共享服务时会同步到使用它的员工。</p>
       <div id="endpointList"></div>
+      <div id="endpointEditor"></div>
+      <div id="endpointStatus" role="status" aria-live="polite"></div>
     </section>
-    <section class="card">
-      <h2>节点权限档位</h2>
-      <div class="muted">
-        这是**整机**的默认档位（dsh 只有这一个写入口，做不到按员工）：只影响这台机器上
-        **所有员工新建的会话**，已有会话不受影响。按员工的"别老是问我"请用下面的「审批自动放行」。
-      </div>
+    <section id="configNodes" class="card hidden">
+      <h2>节点默认权限</h2>
+      <p class="muted">影响该节点所有员工之后新建的会话，已有会话保持原来的权限。</p>
       <div id="nodePermissionList"></div>
-    </section>
-    <section class="card">
-      <h2>员工的模型</h2>
-      <div class="muted">
-        每个员工可以挂多条「别名 → 端点 + 模型」。设为当前后：新会话用它，
-        **并且把当前打开的那个会话一起切过去**（正在跑回合的会话会等它跑完）。
-      </div>
-      <div id="llmConfigList"></div>
     </section>
   </section>
 

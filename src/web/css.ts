@@ -504,24 +504,83 @@ button.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 button.tab .chip { margin-left: 6px; }
 button.tab .chip:empty { display: none; }
 
-/* ── 模型配置页（行内展开编辑器，不用弹窗）── */
-.llm-row {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  margin-bottom: 8px;
-  background: var(--panel-2);
+/* ── 员工配置工作台：员工 / 共享服务 / 整机权限各有明确作用范围 ── */
+.config-heading h2 { margin: 0; font-size: 22px; }
+.config-heading p { margin: 4px 0 0; }
+.config-pages, .config-tabs, .config-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.config-pages button[aria-pressed="true"] { background: var(--panel); border-color: var(--accent); color: var(--accent); }
+.config-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 4px 0 14px; }
+.config-workspace { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 550px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.config-directory { min-width: 0; padding: 18px 12px; background: var(--panel-2); border-right: 1px solid var(--line); border-radius: var(--radius) 0 0 var(--radius); }
+.config-field { display: flex; flex-direction: column; align-items: stretch; min-width: 0; gap: 6px; margin: 0 0 16px; }
+.config-label { font-size: 13px; font-weight: 600; }
+.config-field input:not([type="checkbox"]), .config-field select, .config-field textarea { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 8px 10px; color: var(--fg); background: var(--input-bg); font: inherit; }
+.config-field .group-picker { width: 100%; }
+.config-field .group-picker select { width: 100%; }
+.config-field .group-new { width: 100%; }
+.config-help { font-size: 12px; overflow-wrap: anywhere; }
+.config-mobile-picker { display: none; }
+.config-group-title { color: var(--muted); font-size: 11px; margin: 18px 8px 7px; }
+.config-person { display: flex; width: 100%; align-items: center; text-align: left; gap: 9px; padding: 12px 8px; background: transparent; border: 1px solid transparent; margin-bottom: 4px; }
+.config-person[aria-pressed="true"] { background: var(--active-bg); border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); }
+.config-person-copy { display: flex; flex-direction: column; min-width: 0; }
+.config-person-name { font-weight: 600; overflow-wrap: anywhere; }
+.config-person .desk-avatar-box { width: 28px; height: 28px; margin: 0; flex: 0 0 auto; }
+.config-detail { padding: 24px; min-width: 0; }
+.config-person-header { display: flex; align-items: center; gap: 12px; }
+.config-person-header h3 { margin: 0 0 3px; }
+.config-person-header .desk-avatar-box { width: 44px; height: 44px; margin: 0; flex: 0 0 auto; }
+.config-tabs { gap: 20px; margin: 22px 0; border-bottom: 1px solid var(--line); }
+.config-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 0 0 12px; color: var(--muted); }
+.config-tabs button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--accent); }
+.config-message { margin: 0 0 16px; padding: 10px 12px; background: var(--panel-2); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.config-model-summary { background: var(--panel-2); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 20px; }
+.config-model-summary strong { display: block; margin: 6px 0; overflow-wrap: anywhere; }
+.config-section-title { margin: 24px 0 12px; }
+.config-model-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.config-model-copy { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.config-model-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px; }
+.config-more { position: relative; }
+.config-more > summary { cursor: pointer; padding: 8px; color: var(--muted); }
+.config-more[open] { flex-basis: 100%; padding: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.config-more .config-field { margin-top: 12px; }
+.config-switch { flex-basis: 100%; background: var(--panel-2); border-radius: var(--radius-sm); padding: 14px; }
+.config-switch > button { margin-right: 8px; }
+.config-form { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.config-form > h3 { margin: 0 0 18px; }
+.config-form-identity { max-width: 640px; }
+.config-check { display: flex; align-items: flex-start; gap: 8px; margin: 14px 0; font-size: 13px; }
+.config-check input { flex: 0 0 auto; margin: 4px 0 0; accent-color: var(--accent); }
+.config-form-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 18px; margin-top: 20px; border-top: 1px solid var(--line); }
+.config-danger { margin: 22px 0 16px; color: var(--muted); }
+.config-danger summary, .config-advanced summary { cursor: pointer; padding: 8px 0; }
+.config-danger > button { margin-top: 12px; }
+.config-service-row { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; border-bottom: 1px solid var(--line); padding: 20px 0; }
+.config-service-row > div:first-child { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+#endpointEditor { max-width: 680px; }
+.config-advanced { margin: 0 0 16px; }
+.config-node-row { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.config-node-row .config-field { max-width: 540px; }
+.config-batch-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; margin: 20px 0; }
+.config-batch-people { display: grid; gap: 2px; margin-top: 12px; max-height: 340px; overflow-y: auto; padding-right: 6px; }
+.config-batch-people .config-check { margin: 6px 0; }
+.config-batch-result { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.config-batch-result strong { min-width: 64px; }
+.config-batch-result span { flex: 1 1 220px; }
+.config-batch-results { margin: 18px 0; }
+@media (max-width: 760px) {
+  .config-workspace { grid-template-columns: minmax(0, 1fr); }
+  .config-directory { border-right: 0; border-bottom: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; padding: 16px; }
+  .config-search, #configEmployeeList { display: none; }
+  .config-mobile-picker { display: flex; margin: 0; }
+  .config-detail { padding: 18px 16px; }
+  .config-tabs { gap: 16px; }
+  .config-batch-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
 }
-.llm-row-head { display: flex; align-items: center; gap: 8px; }
-.llm-row-head .name { font-weight: 600; }
-.llm-status { color: var(--muted); font-size: 12px; flex: 1 1 auto; word-break: break-all; }
-.llm-editor {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-top: 1px dashed var(--line);
-  padding-top: 8px;
+@media (pointer: coarse) {
+  #viewLlm button, #viewLlm summary { min-height: 44px; }
+  .config-field input:not([type="checkbox"]), .config-field select, .config-field textarea { min-height: 44px; font-size: 16px; }
+  .config-check { min-height: 36px; align-items: center; }
 }
 
 /* ── 办公区：分组 + 像素工位 ── */

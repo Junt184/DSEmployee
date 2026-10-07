@@ -42,6 +42,7 @@ function loadPositions() {
       if ($('officeFloor') !== null) renderEmployees()
       /* 会话树也显示岗位名，目录晚到或改名后需同步刷新。 */
       renderSessions()
+      if (state.view === 'llm') renderLlmConfig()
       return state.positions
     })
     .catch(function (error) {

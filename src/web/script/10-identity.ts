@@ -118,14 +118,32 @@ var state = {
   unread: {}, // employeeId → 未读条数（localStorage 持久化）
   deskPaintTimer: null,
   deskPollTimer: null,
-  /* ── 模型配置标签页 ── */
+  /* ── 员工配置工作台 ── */
   llmEndpoints: [], // 端点库（llm.endpoint.list 的 endpoints；key 只有掩码）
-  llmDetail: {}, // employeeId → employee.llm.get 的返回（展开时才拉，key 只有掩码）
-  llmProbeModels: {}, // 端点 id（'' = 新端点草稿）→ probe 拉到的模型 id 列表
+  llmDetail: {}, // employeeId → employee.llm.get 返回；选中才拉，key 只有掩码
   llmPermission: {}, // employeeId → {preset, hasSession}（权限档位，只读显示）
   nodePermissions: {}, // nodeId → {name, online, preset, error?}（整机级默认档位）
-  llmOpen: {}, // employeeId → true（编辑区展开中）
   llmEndpointEdit: null, // 'new' | 端点 id | null（端点库里正在编辑哪一条）
+  configPage: 'employees',
+  configEmployeeId: null, // 配置选择与聊天选择独立
+  configTab: 'models',
+  configSearch: '',
+  configDetailKey: '',
+  configRequests: {},
+  configLoads: {},
+  configErrors: {},
+  configDrafts: {}, // 仅页面内存；切员工不丢输入，不保存密钥
+  configPending: {},
+  configMessages: {},
+  configEndpointDrafts: {}, // 密钥仅在页面内存中暂存
+  configEndpointReturn: null,
+  configEndpointStatus: {},
+  configNodeDrafts: {},
+  configNodePending: {},
+  configNodeRevision: 0,
+  configNodeReadVersions: {},
+  configEndpointRevision: 0,
+  configBatch: { open: false, selected: new Set(), filter: '', draft: null, running: false, job: null },
   /* ── 自定义头像缓存（employeeId → dataURL）──
      内存这份负责"这一次渲染"，localStorage 那份负责"下次刷新立刻有图"：
      头像几百 KB，而 Hub 侧只有 RPC 一条路（没有 HTTP 缓存），

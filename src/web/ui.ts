@@ -58,6 +58,10 @@ import { CHUNK_20_TRANSPORT } from './script/20-transport.ts'
 import { CHUNK_30_OFFICE } from './script/30-office.ts'
 import { CHUNK_32_OFFICE_ROOM } from './script/32-office-room.ts'
 import { CHUNK_40_PAGES } from './script/40-pages.ts'
+import { CHUNK_41_MODEL_SERVICES } from './script/41-model-services.ts'
+import { CHUNK_42_NODE_SETTINGS } from './script/42-node-settings.ts'
+import { CHUNK_43_EMPLOYEE_CONFIG } from './script/43-employee-config.ts'
+import { CHUNK_44_BATCH_MODELS } from './script/44-batch-models.ts'
 import { CHUNK_45_JOBS } from './script/45-jobs.ts'
 import { CHUNK_50_HEALTH } from './script/50-health.ts'
 import { CHUNK_55_POSITIONS } from './script/55-positions.ts'
@@ -79,6 +83,10 @@ export const CONTROL_UI_SCRIPT =
   CHUNK_30_OFFICE +
   CHUNK_32_OFFICE_ROOM +
   CHUNK_40_PAGES +
+  CHUNK_41_MODEL_SERVICES +
+  CHUNK_42_NODE_SETTINGS +
+  CHUNK_43_EMPLOYEE_CONFIG +
+  CHUNK_44_BATCH_MODELS +
   CHUNK_45_JOBS +
   CHUNK_50_HEALTH +
   CHUNK_55_POSITIONS +
