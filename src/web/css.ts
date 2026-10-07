@@ -393,7 +393,7 @@ main.grid {
   align-items: start;
   width: 100%;
 }
-#viewChat { width: 100%; max-width: 920px; margin: 0 auto; }
+#viewChat { width: 100%; min-width: 0; min-height: 0; }
 
 /* ── 全屏授权页（未配对时的「登录页」）── */
 .auth-gate {
@@ -904,15 +904,88 @@ li.empty { color: var(--muted); padding: 6px 2px; border: 1px dashed var(--line)
   .approval-action-row button { flex: 1 1 0; }
 }
 
-/* ── 聊天视图：Apple Messages 风格，独占全屏 ── */
-#viewChat {
+/* 员工导航属于公共外壳，岗位舞台只排右侧工作区。 */
+#viewChatShell {
   position: fixed;
   inset: 0;
   height: 100dvh;
   z-index: 30;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--bg);
+}
+#viewChat {
+  position: relative;
+  isolation: isolate;
+  height: 100%;
+  max-width: none;
+  margin: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--bg);
+}
+.chat-nav-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: calc(10px + env(safe-area-inset-top)) 3px calc(10px + env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+.chat-nav-rail button { width: 44px; min-height: 48px; padding: 6px 2px; border: 0; background: transparent; color: var(--muted); }
+.chat-nav-rail button:hover { background: var(--panel-2); color: var(--accent); }
+.chat-nav-open, .chat-nav-current { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 10px; }
+.chat-nav-open svg { flex: 0 0 auto; }
+.chat-nav-current { color: var(--accent) !important; }
+.chat-nav-current > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-nav-current .desk-avatar-box { display: flex; width: 30px; height: 30px; margin: 0; }
+.chat-nav-current .desk-avatar { width: 100%; height: 100%; margin: 0; }
+.chat-nav-backdrop { position: absolute; inset: 0; z-index: 5; background: rgba(0, 0, 0, 0.28); }
+#sessionPanel {
+  --nav-border: color-mix(in srgb, var(--line) 78%, transparent);
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  width: min(320px, calc(100% - 44px));
+  height: 100%;
+  max-height: none;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border-right: 1px solid var(--nav-border);
+  border-bottom: 0;
+  box-shadow: 12px 0 36px rgba(0, 0, 0, 0.15);
+}
+.chat-shell.drawer-open > #sessionPanel { animation: employee-nav-in 150ms ease-out both; }
+@keyframes employee-nav-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+.cs-nav-header { display: flex; align-items: flex-start; gap: 4px; flex: 0 0 auto; padding: calc(14px + env(safe-area-inset-top)) 8px 10px 12px; border-bottom: 1px solid var(--nav-border); }
+.cs-nav-header .cs-tree-label { flex: 1 1 auto; min-width: 0; }
+.cs-nav-close { flex: 0 0 auto; width: 36px; min-height: 36px; padding: 0; border: 0; color: var(--muted); font-size: 26px; }
+#sessionList { flex: 1 1 auto; min-height: 0; margin: 0; padding: 12px 10px; overflow-y: auto; overscroll-behavior: contain; }
+.cs-nav-footer { flex: 0 0 auto; max-height: 45%; padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); overflow-y: auto; border-top: 1px solid var(--nav-border); }
+.chat-shell button:focus-visible, #sessionPanel input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (min-width: 1200px) {
+  #viewChatShell { grid-template-columns: clamp(240px, 19vw, 280px) minmax(0, 1fr); }
+  #viewChatShell.panel-collapsed { grid-template-columns: 52px minmax(0, 1fr); }
+  #viewChatShell:not(.panel-collapsed) > .chat-nav-rail { display: none; }
+  #viewChatShell > #sessionPanel { position: relative; inset: auto; grid-column: 1; grid-row: 1; width: 100%; box-shadow: none; }
+  #viewChatShell > #viewChat { grid-column: 2; grid-row: 1; }
+}
+@media (max-width: 640px) {
+  #viewChatShell { grid-template-columns: 44px minmax(0, 1fr); }
+  .chat-nav-rail { padding-inline: 0; }
+  .chat-nav-rail button { width: 40px; }
+  #sessionPanel { width: min(320px, calc(100% - 32px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-shell.drawer-open > #sessionPanel { animation: none; }
 }
 /* 顶栏：半透明毛玻璃 */
 .chat-top {
@@ -987,13 +1060,15 @@ li.empty { color: var(--muted); padding: 6px 2px; border: 1px dashed var(--line)
   color: var(--muted);
   min-height: 14px;
 }
+.chat-peer-position { max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-peer-position:empty { display: none; }
 .chat-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 .chat-dot.off { background: var(--muted); }
 .chat-dot.busy { background: var(--accent); animation: desk-pulse 1.6s ease-in-out infinite; }
 .chat-top-actions { flex: 0 0 auto; display: flex; gap: 4px; }
 .chat-top-actions button { min-height: 44px; padding: 4px 12px; }
 
-/* 会话抽屉：收在顶栏下，首屏只剩对话 */
+/* 公共导航中的会话操作。面板位置由 #sessionPanel 统一控制。 */
 .chat-sessions {
   flex: 0 0 auto;
   max-height: 45vh;
@@ -1537,24 +1612,16 @@ details.card > summary + * { margin-top: 8px; }
 .chat-session-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .chat-session-tools:empty { display: none; }
 
-/* 宽屏（≥1200px）：三栏 —— 左「会话列表」常驻 + 中「对话」+ 右「员工上下文」。
- *
- * 为什么需要：原来 #viewChat 被 max-width:920px 封顶，实测 1440 屏两侧各空 260px、
- * 1920 各空 500px、2560 各空 820px —— 大屏上就是"手机界面放大"，会话列表还只能靠下拉
- * 抽屉（打开就盖住对话）。宽屏的收益在**侧栏**，不是把气泡拉宽（行长超 ~75 字符反而难读），
- * 所以中间列只从 760px 放到 860px，省下的宽度给两侧。
- *
- * 布局用 grid-template-areas 完成，**不动 DOM 顺序** —— 那个顺序正是窄屏需要的
- * （顶栏 → 会话抽屉 → 消息 → 输入区），所以窄屏一行都不用改。 */
+/* 宽屏：左侧公共导航之外，普通工作区排「对话 + 员工上下文」。 */
 @media (min-width: 1200px) {
   #viewChat {
     display: grid;
-    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(280px, 340px);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
     grid-template-rows: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "panel top      aside"
-      "panel messages aside"
-      "panel composer aside";
+      "top      aside"
+      "messages aside"
+      "composer aside";
     width: 100%;
     max-width: none;
     margin: 0;
@@ -1562,22 +1629,6 @@ details.card > summary + * { margin-top: 8px; }
   #viewChat > .chat-top { grid-area: top; }
   #viewChat > .messages { grid-area: messages; }
   #viewChat > .composer { grid-area: composer; }
-  /* 左栏常驻：.hidden 用的是 display:none !important，这里靠 id 选择器压过它
-     （同 importance 下 specificity 更高者胜），因此 JS 侧的抽屉开关在宽屏自动失效 ——
-     同时把「会话」按钮收起来，免得点了一个不会有反应的东西。 */
-  #sessionPanel {
-    grid-area: panel;
-    display: flex !important;
-    flex-direction: column;
-    max-height: none;
-    height: 100%;
-    overflow-y: auto;
-    border-right: 1px solid var(--line);
-    border-bottom: none;
-    box-shadow: none;
-  }
-  #btnChatSessions { display: none; }
-  /* 右栏 */
   #employeeAside {
     grid-area: aside;
     display: flex !important;
@@ -1590,28 +1641,15 @@ details.card > summary + * { margin-top: 8px; }
     border-left: 1px solid var(--line);
     font-size: 12px;
   }
-  /* 中间列放宽一点（760 → 860），与输入区同步，保持左右对齐 */
   #viewChat .msg, #viewChat .composer-inner { max-width: 860px; }
-  /* 折叠时把所在轨道压成 0 —— 保留 areas 定义，只收轨道最省事 */
-  #viewChat.aside-collapsed { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) 0; }
-  /* 只收左栏：右栏轨道原样保留（220–260 → 0），中间列吃满省下的宽度 */
-  #viewChat:not([class*="layout-"]).panel-collapsed {
-    grid-template-columns: 0 minmax(0, 1fr) minmax(280px, 340px);
-  }
-  /* 两栏都收。这条必须单独写：grid-template-columns 是同一条属性，三条规则谁生效
-     只看 specificity —— 本选择器是 1 个 id + 3 个类，#viewChat.aside-collapsed 只有
-     1 个 id + 1 个类，所以"都收"这条稳定胜出，与书写顺序无关。
-     （漏掉这条的后果很容易看漏：两个都收时左栏轨道会留在 220–260px 的空档。） */
-  #viewChat:not([class*="layout-"]).panel-collapsed.aside-collapsed {
-    grid-template-columns: 0 minmax(0, 1fr) 0;
-  }
+  #viewChat.aside-collapsed { grid-template-columns: minmax(0, 1fr) 0; }
 }
 
 /* ── 中档（641–1199px 且高度 ≥500px）：对话 + 右栏 ──
  *
  * 实测（真机尺寸，见 docs/05 §13.9）：iPad 横屏 1024×768、折叠屏展开 884×1104 在旧规则下
  * **右栏与左栏都拿不到**，退回单栏 —— 而这些宽度其实足够摆"对话 + 右栏"，缺的只是左栏的位置。
- * 所以中档给两栏（左会话列表仍走抽屉，顶栏「会话」按钮照常可用）。
+ * 所以中档给两栏；左侧员工导航通过公共窄栏打开抽屉。
  * 三栏门槛保持 1200：再窄的话中间列会被挤到 600px 以下，气泡行长反而难读。
  *
  * **高度前提（min-height: 500px）是给横屏手机留的**：844×390 这种"宽够但极矮"的视口，
@@ -1669,28 +1707,6 @@ details.card > summary + * { margin-top: 8px; }
    （各自写着 > #employeeAside { display: none !important }），「上下文栏折叠」在那里
    点了不会有任何变化 —— 秘书页早按"不给死键"把按钮藏了，这两页是漏的，一并补上。 */
 #viewChat[class*="layout-"] > .chat-top #btnAside { display: none; }
-/* 左栏开关存在的档位与"常驻左栏"完全一致：≥1200px。差一档都不给 ——
-   中档/窄屏的左栏是顶栏那个「会话」抽屉（它自己就有按钮），再来一个同名按钮
-   只会让人以为"点了会另开一个东西"。 */
-#btnPanel { display: none; }
-@media (min-width: 1200px) {
-  #btnPanel { display: inline-block; } /* 同 #btnAside：这里用 flex 会让文字贴顶 */
-  /* 别的外壳里左栏不是常驻列（秘书页/四宫格另有排法），这一档也不给死键 */
-  #viewChat[class*="layout-"] > .chat-top #btnPanel { display: none; }
-  /* ── 左栏折叠：藏掉那一列 ──
-   *
-   * 必须**排除别的外壳**（秘书页 / 四宫格）：那几页把 #sessionPanel 重新摆成一条
-   * 独立的下拉带，靠 .hidden 开关；要是 panel-collapsed 在那里也生效，带子会被永久
-   * 藏掉、而「会话」按钮还在（死键）。用 [class*="layout-"] 一次排除全部外壳，而不是
-   * 逐个列举 —— 以后再加一个 layout-* 外壳也不会漏（漏了就是死键）。
-   * （aside-collapsed 不需要这层排除：那几个外壳里 #employeeAside 本来就是隐藏的。）
-   *
-   * 也必须**待在 ≥1200px 的媒体查询里**：中档与窄屏的 #sessionPanel 是顶栏那个
-   * 「会话」抽屉，同样靠 .hidden 开关；若在窄屏也生效，抽屉就再也打不开了 ——
-   * 一个"大屏上收了左栏"的存档会把手机上的会话列表永久锁死。 */
-  #viewChat:not([class*="layout-"]).panel-collapsed > #sessionPanel { display: none !important; }
-}
-
 /* ══════════ 秘书页外壳（岗位 layout="secretary"）══════════
  *
  * 只换**外壳**：气泡区、输入区、会话抽屉、附件、流式、断线提示全部是原来那几个元素，
@@ -1709,13 +1725,10 @@ details.card > summary + * { margin-top: 8px; }
 #viewChat.layout-secretary {
   display: grid;
   grid-template-columns: minmax(0, 38fr) minmax(0, 62fr);
-  /* 五行对应五个区域（top / session / pull / messages / composer）。
-     会话展开时拥有自己的行：它会把对话区往下挤，而不是盖在气泡上；
-     立绘列跨过所有行，所以不会被会话列表顶走。 */
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  /* 员工导航在外层，舞台与对话保持独立布局。 */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-areas:
     "stage top"
-    "stage session"
     "stage pull"
     "stage messages"
     "stage composer";
@@ -1726,7 +1739,7 @@ details.card > summary + * { margin-top: 8px; }
 }
 #viewChat.layout-secretary > .secretary-stage { grid-area: stage; display: flex; flex-direction: column; }
 #viewChat.layout-secretary > .board-pull { grid-area: pull; display: inline-flex; }
-/* 顶栏（返回办公区 / 会话 / 新会话）在秘书页**必须留着** ——
+/* 顶栏（返回办公区 / 新会话）在秘书页**必须留着** ——
    实测踩过：一开始把它隐掉，结果这一页进得去出不来（返回按钮就在它里面）。
    它和下拉箭头各占一行：顶栏在上、箭头在下。 */
 #viewChat.layout-secretary > .chat-top { grid-area: top; border-bottom: none; }
@@ -1736,38 +1749,6 @@ details.card > summary + * { margin-top: 8px; }
 #viewChat.layout-secretary > .composer { grid-area: composer; }
 /* 秘书页不吃右栏那一套栅格：右栏信息进全屏看板，不进这一页的右列 */
 #viewChat.layout-secretary > #employeeAside { display: none !important; }
-/* 秘书页的会话列表是顶栏下面的**独立下拉区**，不和消息区共格。
-   这样展开时只压缩右侧对话的可用高度，不会遮住气泡，也不会影响左侧立绘。
-   ≥1200px 的通用三栏规则会把它设为常驻左栏，这里的更高 specificity 要把秘书页
-   拉回自己的 session 行；否则「会话」按钮会变成死键。 */
-#viewChat.layout-secretary > #sessionPanel {
-  grid-area: session;
-  display: block !important;
-  width: auto;
-  height: auto;
-  max-height: min(30vh, 300px);
-  overflow-y: auto;
-  border-right: none;
-  border-bottom: 1px solid var(--line);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
-}
-#viewChat.layout-secretary > #sessionPanel.hidden { display: none !important; }
-#viewChat.layout-secretary > #sessionPanel:not(.hidden) {
-  animation: secretary-session-drop 140ms ease-out both;
-}
-@keyframes secretary-session-drop {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-#viewChat.layout-secretary > .chat-top #btnChatSessions { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
-#viewChat.layout-secretary > .chat-top #btnChatSessions::after {
-  content: '⌄';
-  margin-left: 5px;
-  color: var(--muted);
-  font-size: 12px;
-}
-#viewChat.layout-secretary > .chat-top #btnChatSessions[aria-expanded="true"]::after { content: '⌃'; }
-
 /* 立绘列 —— 一张**白色画布**（两种主题都是白的）
  *
  * 为什么不做"透明立绘浮在主题色上"：素材是**黑白线稿**（实测人物像素 0% 有彩度、
@@ -1864,9 +1845,9 @@ details.card > summary + * { margin-top: 8px; }
 .board-pull .board-dot.hidden { display: none; }
 
 /* 上次结论：像浅夏递来的一张案头简报，而不是另一个空白后台页面。
-   手机仍然全屏；桌面端在下面的 ≥960px 规则里只覆盖右侧对话列，左侧立绘一直可见。 */
+   手机覆盖工作区并保留员工导航入口；桌面端 ≥960px 只覆盖右侧对话列，左侧立绘一直可见。 */
 .board-sheet {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 40;
   display: grid;
@@ -2030,22 +2011,17 @@ details.card > summary + * { margin-top: 8px; }
 }
 
 /* 手机或横屏矮屏（≤640px，或 641–959px 且高度不足 500px）：立绘是独立的停靠舞台，
-   不再藏在输入框后面。六行顺序固定：顶栏 → 会话 → 结论 → 立绘 → 消息 → 输入；只有消息行吃剩余高度。 */
+   不再藏在输入框后面。顺序为顶栏 → 结论 → 立绘 → 消息 → 输入，只有消息行吃剩余高度。 */
 @media (max-width: 640px), (min-width: 641px) and (max-width: 959px) and (max-height: 499px) {
   #viewChat.layout-secretary {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     grid-template-areas:
       "top"
-      "session"
       "pull"
       "stage"
       "messages"
       "composer";
-  }
-  #viewChat.layout-secretary > #sessionPanel {
-    max-height: min(30vh, 240px);
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
   }
   #viewChat.layout-secretary > .chat-top #btnNewSession { display: none; }
   #viewChat.layout-secretary > .chat-top .chat-top-actions button { padding-left: 9px; padding-right: 9px; }
@@ -2185,14 +2161,11 @@ details.card > summary + * { margin-top: 8px; }
     display: grid;
     /* 左 42 / 右 58：左边是"看"（情报），右边是"干"（裁决、切换会话、下指令） */
     grid-template-columns: minmax(0, 42fr) minmax(0, 58fr);
-    /* 第二行（右上指挥栏）带**下限**：会话列表展开时只压缩对话，
-       不把裁决按钮挤成半格 —— 实测过，不给下限时右上格会从 274px 掉到 168px，
-       而"批准/拒绝"恰恰是用户正在找的东西。 */
-    grid-template-rows: auto minmax(240px, 1fr) auto minmax(0, 1fr) auto;
+    /* 指挥区保留下限；员工与会话在外层，不占工作区行高。 */
+    grid-template-rows: auto minmax(240px, 1fr) minmax(0, 1fr) auto;
     grid-template-areas:
       "top top"
       "tl  tr"
-      "bl  ss"
       "bl  msgs"
       "bl  composer";
     width: 100%;
@@ -2221,27 +2194,9 @@ details.card > summary + * { margin-top: 8px; }
     font-size: 12px;
     align-content: start;
   }
-  /* 右栏在四宫格里不存在：右上那格已经承担了它的职责（技能/审批/会话都在那里）。
+  /* 右栏在四宫格里不存在：右上那格已经承担了它的职责（技能/审批都在那里）。
      不藏起来会出现"同一份数据两块地方"，而两块的状态迟早不一致。 */
   #viewChat.layout-quad > #employeeAside { display: none !important; }
-  /* 会话列表：右列里的一条独立带。这里必须压过 ≥1200px 那条"左栏常驻"
-     （那条用 id 选择器 + !important 把抽屉开关废掉了，秘书页踩过一模一样的坑）。 */
-  #viewChat.layout-quad > #sessionPanel {
-    grid-area: ss;
-    display: flex !important;
-    flex-direction: column;
-    width: auto;
-    height: auto;
-    max-height: min(34vh, 320px);
-    overflow-y: auto;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
-  }
-  #viewChat.layout-quad > #sessionPanel.hidden { display: none !important; }
-  /* 顶栏的「会话」按钮在四宫格里留着：它和右上格的折叠行调的是同一个函数，
-     两个入口不会打架，而且窄屏时右上格多半是收着的，顶栏那个才是够得着的入口。 */
-  #viewChat.layout-quad > .chat-top #btnChatSessions { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
   /* 本页皮肤开关（日间 / 作业室）：只在四宫格这一页露出来。窄屏不给 ——
      顶栏在手机上已经排不下更多按钮，而它只是个外观开关（默认日间照样能用）。 */
   #viewChat.layout-quad > .chat-top #btnQuadSkin { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
@@ -2253,7 +2208,7 @@ details.card > summary + * { margin-top: 8px; }
  * 而四宫格把对话压在右下那一格里 —— 实测只占约 1/4 屏。这一排法把对话还给右半边：
  *
  *   "top  top"       顶栏全宽
- *   "side side"      一条次级工具条：会话 / 专属技能 / 未匹配的审批（都是折起来的一行）
+ *   "side side"      一条次级工具条：专属技能 / 未匹配的审批（都是折起来的一行）
  *   "tl   msgs"      左上 事件台（含时间线） ｜ 右侧整列：对话（跨两行）
  *   "bl   msgs"      左下 处置队列             ｜
  *   "bl   composer"  左下（跨两行）            ｜ 输入框贴底
@@ -2352,18 +2307,6 @@ details.card > summary + * { margin-top: 8px; }
   #viewChat.layout-quad-chat .inc-tl-counts { color: var(--muted); font-size: 11px; white-space: nowrap; }
   /* 右栏在这一排法里同样不存在（职责已经分给左下与那一条工具条） */
   #viewChat.layout-quad-chat > #employeeAside { display: none !important; }
-  /* 会话列表：这一排法没有"右列"，所以它像窄屏一样**盖在对话上**，右对齐、限宽 */
-  #viewChat.layout-quad-chat > #sessionPanel {
-    grid-area: msgs;
-    align-self: start;
-    justify-self: end;
-    z-index: 4;
-    width: min(420px, 60%);
-    max-height: 52vh;
-    overflow-y: auto;
-  }
-  #viewChat.layout-quad-chat > #sessionPanel.hidden { display: none !important; }
-  #viewChat.layout-quad-chat > .chat-top #btnChatSessions { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
   #viewChat.layout-quad-chat > .chat-top #btnQuadSkin { display: inline-block; /* 同 #btnAside：inline-flex 会让按钮文字贴顶 */ }
 }
 
@@ -2421,14 +2364,6 @@ details.card > summary + * { margin-top: 8px; }
   }
   /* 摊开的那格之下，消息区照常滚动（它是背景，不是被替换掉的） */
   #viewChat.layout-quad > .messages { z-index: 1; }
-  /* 会话列表窄屏时按抽屉走：盖在消息区上（默认那套 ≤640 的定位规则在四宫格里不适用） */
-  #viewChat.layout-quad > #sessionPanel {
-    grid-area: messages;
-    align-self: start;
-    z-index: 4;
-    max-height: 52vh;
-    overflow-y: auto;
-  }
 }
 
 /* ── 格位内容（面板渲染出来的件）── */
@@ -3307,51 +3242,45 @@ details.card > summary + * { margin-top: 8px; }
   color: var(--accent);
 }
 
-#viewChat:not([class*="layout-"]) > .chat-sessions {
-  padding: 12px;
-  background: color-mix(in srgb, var(--panel) 92%, var(--bg));
-  border-bottom-color: var(--regular-chat-border);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.07);
-}
-#viewChat:not([class*="layout-"]) > .chat-sessions ul.list { gap: 4px; }
-#viewChat:not([class*="layout-"]) .cs-tree-label {
+#sessionPanel ul.list { gap: 4px; }
+#sessionPanel .cs-tree-label {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 4px 8px 12px;
+  padding: 2px 4px;
   font-size: 13px;
   font-weight: 600;
 }
-#viewChat:not([class*="layout-"]) .cs-tree-label .muted { font-size: 11px; font-weight: 400; }
-#viewChat:not([class*="layout-"]) .cs-employee { min-width: 0; padding-bottom: 6px; }
-#viewChat:not([class*="layout-"]) .cs-employee-head {
+#sessionPanel .cs-tree-label .muted { font-size: 11px; font-weight: 400; line-height: 1.6; }
+#sessionPanel .cs-employee { min-width: 0; padding-bottom: 6px; }
+#sessionPanel .cs-employee-head {
   display: flex;
   align-items: center;
   border-radius: 10px;
   transition: background-color 140ms ease;
 }
-#viewChat:not([class*="layout-"]) .cs-employee-head:hover { background: var(--panel-2); }
-#viewChat:not([class*="layout-"]) .cs-employee.selected > .cs-employee-head {
+#sessionPanel .cs-employee-head:hover { background: var(--panel-2); }
+#sessionPanel .cs-employee.selected > .cs-employee-head {
   background: var(--active-bg);
   box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
 }
-#viewChat:not([class*="layout-"]) .cs-employee.selected .cs-employee-select,
-#viewChat:not([class*="layout-"]) .cs-employee.selected > .cs-employee-head .cs-employee-toggle { color: var(--accent); }
+#sessionPanel .cs-employee.selected .cs-employee-select,
+#sessionPanel .cs-employee.selected > .cs-employee-head .cs-employee-toggle { color: var(--accent); }
 .cs-current { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 10px; }
-#viewChat:not([class*="layout-"]) .cs-employee-head button {
+#sessionPanel .cs-employee-head button {
   min-height: 40px;
   border: 0;
   background: transparent;
   box-shadow: none;
 }
-#viewChat:not([class*="layout-"]) .cs-employee-toggle {
+#sessionPanel .cs-employee-toggle {
   flex: 0 0 30px;
   width: 30px;
   padding: 0;
   color: var(--muted);
   font-size: 20px;
 }
-#viewChat:not([class*="layout-"]) .cs-employee-select {
+#sessionPanel .cs-employee-select {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3362,46 +3291,46 @@ details.card > summary + * { margin-top: 8px; }
   font-size: 13px;
   font-weight: 600;
 }
-#viewChat:not([class*="layout-"]) .cs-employee-select .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sessionPanel .cs-employee-select .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cs-employee-label { display: flex; align-items: baseline; flex: 1 1 auto; min-width: 0; }
 .cs-employee-label .name { min-width: 0; }
 .cs-position { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: var(--muted); }
-#viewChat:not([class*="layout-"]) .cs-employee-select .badge { flex: 0 0 auto; margin-left: auto; font-size: 10px; }
-#viewChat:not([class*="layout-"]) ul.cs-employee-sessions {
+#sessionPanel .cs-employee-select .badge { flex: 0 0 auto; margin-left: auto; font-size: 10px; }
+#sessionPanel ul.cs-employee-sessions {
   margin: 4px 0 0 15px;
   padding-left: 10px;
-  border-left: 1px solid var(--regular-chat-border);
+  border-left: 1px solid var(--nav-border);
   overflow: visible;
 }
-#viewChat:not([class*="layout-"]) .cs-session-notice { padding: 8px; color: var(--muted); font-size: 11px; }
-#viewChat:not([class*="layout-"]) .cs-session-notice button { padding: 0; min-height: 32px; font-size: inherit; text-align: left; }
-#viewChat:not([class*="layout-"]) .cs-employee-sessions .cs-new button { width: 100%; min-height: 36px; border: 0; text-align: left; font-size: 12px; color: var(--accent); }
-#viewChat:not([class*="layout-"]) .cs-employee-sessions .meta { font-size: 10px; }
-#viewChat:not([class*="layout-"]) > .chat-sessions li.item {
+#sessionPanel .cs-session-notice { padding: 8px; color: var(--muted); font-size: 11px; }
+#sessionPanel .cs-session-notice button { padding: 0; min-height: 32px; font-size: inherit; text-align: left; }
+#sessionPanel .cs-employee-sessions .cs-new button { width: 100%; min-height: 36px; border: 0; text-align: left; font-size: 12px; color: var(--accent); }
+#sessionPanel .cs-employee-sessions .meta { font-size: 10px; }
+#sessionPanel li.item {
   border-color: transparent;
   border-radius: 14px;
   padding: 10px 12px;
   background: transparent;
   transition: background-color 140ms ease, box-shadow 140ms ease, color 140ms ease;
 }
-#viewChat:not([class*="layout-"]) > .chat-sessions li.item:hover {
+#sessionPanel li.item:hover {
   border-color: transparent;
   background: color-mix(in srgb, var(--panel-2) 72%, transparent);
 }
-#viewChat:not([class*="layout-"]) > .chat-sessions li.item.active {
+#sessionPanel li.item.active {
   border-color: transparent;
   background: var(--active-bg);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
 }
-#viewChat:not([class*="layout-"]) > .chat-sessions li.empty {
-  border-color: var(--regular-chat-border);
+#sessionPanel li.empty {
+  border-color: var(--nav-border);
   border-radius: 14px;
   padding: 10px 12px;
 }
-#viewChat:not([class*="layout-"]) .chat-advanced { border-top-style: solid; border-top-color: var(--regular-chat-border); }
-#viewChat:not([class*="layout-"]) .cs-create-input,
-#viewChat:not([class*="layout-"]) .chat-advanced input {
-  border-color: var(--regular-chat-border);
+#sessionPanel .chat-advanced { border-top-style: solid; border-top-color: var(--nav-border); }
+#sessionPanel .cs-create-input,
+#sessionPanel .chat-advanced input {
+  border-color: var(--nav-border);
   background: var(--input-bg);
 }
 

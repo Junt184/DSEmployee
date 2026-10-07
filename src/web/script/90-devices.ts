@@ -525,9 +525,7 @@ function bindEvents() {
      （深链、通知点进来），按钮就会变成一个点了没反应的死键。 */
   var asideToggle = $('btnAside')
   if (asideToggle !== null) asideToggle.onclick = toggleAside
-  /* 左栏折叠开关同理绑在这里（同一条理由：它是顶栏按钮，不该只在"点过工位"之后才活） */
-  var panelToggle = $('btnPanel')
-  if (panelToggle !== null) panelToggle.onclick = togglePanel
+  bindEmployeeNavigationUi()
   /* 发文件：按钮 / 拖拽 / 粘贴三条入口都汇到 handlePickedFiles */
   var attachButton = $('btnAttach')
   var fileInput = $('fileInput')

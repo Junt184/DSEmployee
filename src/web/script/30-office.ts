@@ -669,30 +669,50 @@ function toggleAside() {
   applyAsideVisible(currentAsideVisible() !== true)
 }
 
-/* ── 左栏（会话列表）折叠 ──
- *
- * JS 只切 #viewChat 上的一个类 + 记录设备偏好，怎么收由 CSS 决定。
- * 左栏开关与员工内部的会话展开互不影响。
- *
- * 与右栏唯一的区别是**存在的档位**：常驻左栏只在 ≥1200px 有（中档与窄屏的左栏是顶栏
- * 那个「会话」抽屉，走的是 .hidden 那一套状态，与本类的 panel-collapsed 不共用）。
- * 所以这个按钮只在 ≥1200px 出现，那一档之外不给死键 —— 和右栏在窄屏藏按钮同一个理由。
- *
- * 状态同样**不**跟会话/员工走：它是"这块屏幕想不想常驻会话列表"，换员工不该把它变回来。 */
+/* 公共员工导航：桌面展开偏好跨岗位沿用；窄屏抽屉临时打开，互不覆盖。
+   员工内部的会话展开是另一份状态，不因侧栏收放或切换岗位而改变。 */
+var CHAT_NAV_DOCK_QUERY = '(min-width: 1200px)'
+
+function sessionNavDocked() {
+  return typeof window.matchMedia === 'function' ? window.matchMedia(CHAT_NAV_DOCK_QUERY).matches : window.innerWidth >= 1200
+}
+
 function currentPanelVisible() {
   return readLocal(LS.panel) !== 'hidden'
 }
 
 function syncPanelToggle() {
-  var chat = $('viewChat')
-  var visible = state.panelVisible === true
-  if (chat !== null) chat.classList.toggle('panel-collapsed', !visible)
-  var button = $('btnPanel')
-  if (button === null) return
-  button.setAttribute('aria-pressed', visible ? 'true' : 'false')
-  button.classList.toggle('primary', visible)
-  button.textContent = visible ? '会话栏折叠' : '会话栏展开'
-  button.title = visible ? '收起左侧的会话栏' : '展开左侧的会话栏'
+  var docked = sessionNavDocked()
+  var drawer = !docked && state.sessionNavOpen === true
+  var visible = docked ? state.panelVisible === true : drawer
+  var shell = $('viewChatShell')
+  if (shell !== null) {
+    shell.classList.toggle('panel-collapsed', state.panelVisible !== true)
+    shell.classList.toggle('drawer-open', drawer)
+  }
+  var panel = $('sessionPanel')
+  var returnFocus = panel !== null && !visible && panel.contains(document.activeElement)
+  if (panel !== null) {
+    panel.classList.toggle('hidden', !visible)
+    panel.setAttribute('role', drawer ? 'dialog' : 'navigation')
+    if (drawer) panel.setAttribute('aria-modal', 'true')
+    else panel.removeAttribute('aria-modal')
+  }
+  var backdrop = $('employeeNavBackdrop')
+  if (backdrop !== null) backdrop.classList.toggle('hidden', !drawer)
+  /* 抽屉打开时，键盘与点击都留在导航内；桌面常驻导航不限制工作区。 */
+  var workspace = $('viewChat')
+  if (workspace !== null) workspace.inert = drawer
+  var rail = $('employeeNavRail')
+  if (rail !== null) rail.inert = drawer
+  ;['btnChatSessions', 'btnNavCurrent', 'btnPanel'].forEach(function (id) {
+    var button = $(id)
+    if (button !== null) button.setAttribute('aria-expanded', visible ? 'true' : 'false')
+  })
+  if (returnFocus) {
+    var opener = $('btnChatSessions')
+    if (opener !== null) opener.focus()
+  }
 }
 
 function applyPanelVisible(visible) {
@@ -701,8 +721,78 @@ function applyPanelVisible(visible) {
   syncPanelToggle()
 }
 
-function togglePanel() {
-  applyPanelVisible(currentPanelVisible() !== true)
+function closeSessionNavDrawer() {
+  var wasOpen = state.sessionNavOpen === true
+  state.sessionNavOpen = false
+  syncPanelToggle()
+  if (wasOpen && !sessionNavDocked()) {
+    var button = $('btnChatSessions')
+    if (button !== null) button.focus()
+  }
+}
+
+function updateEmployeeNavigation() {
+  var employee = state.selectedEmployeeId === null ? null : employeeById(state.selectedEmployeeId)
+  var name = employee === null ? '员工' : String(employee.name || shortId(employee.id))
+  var role = employee === null ? '' : (positionName(employee.position) || '通用')
+  var label = $('navCurrentName')
+  if (label !== null) label.textContent = name
+  var button = $('btnNavCurrent')
+  if (button !== null) {
+    button.title = employee === null ? '展开员工与会话' : '当前：' + name + '（' + role + '）· 展开员工与会话'
+    button.setAttribute('aria-label', button.title)
+  }
+  var avatar = $('navCurrentAvatar')
+  var id = employee === null ? '' : String(employee.id || '')
+  if (avatar !== null && avatar.getAttribute('data-peer') !== id) {
+    clear(avatar)
+    avatar.setAttribute('data-peer', id)
+    if (employee !== null) {
+      avatar.appendChild(avatarNode(employee, 30))
+      ensureAvatar(employee)
+    }
+  }
+}
+
+function bindEmployeeNavigationUi() {
+  var open = $('btnChatSessions')
+  if (open !== null) open.onclick = function () { toggleSessionPanel() }
+  var current = $('btnNavCurrent')
+  if (current !== null) current.onclick = function () { toggleSessionPanel(true) }
+  var close = $('btnPanel')
+  if (close !== null) close.onclick = function () { toggleSessionPanel(false) }
+  var backdrop = $('employeeNavBackdrop')
+  if (backdrop !== null) backdrop.onclick = closeSessionNavDrawer
+  document.addEventListener('keydown', function (event) {
+    if (state.view !== 'chat' || sessionNavDocked() || state.sessionNavOpen !== true) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeSessionNavDrawer()
+      return
+    }
+    if (event.key !== 'Tab') return
+    var panel = $('sessionPanel')
+    if (panel === null) return
+    var focusable = Array.from(panel.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"], summary')).filter(function (node) {
+      return node.getClientRects().length > 0
+    })
+    if (focusable.length === 0) return
+    var first = focusable[0]
+    var last = focusable[focusable.length - 1]
+    if (event.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))) {
+      event.preventDefault()
+      first.focus()
+    }
+  })
+  if (typeof window.matchMedia === 'function') {
+    var query = window.matchMedia(CHAT_NAV_DOCK_QUERY)
+    var resizeNavigation = function () { closeSessionNavDrawer() }
+    if (typeof query.addEventListener === 'function') query.addEventListener('change', resizeNavigation)
+    else if (typeof query.addListener === 'function') query.addListener(resizeNavigation)
+  }
 }
 
 /* ── 办公区（分组工位视图）── */
@@ -744,7 +834,7 @@ var VIEW_IDS = {
   devices: 'viewDevices',
   health: 'viewHealth',
   llm: 'viewLlm',
-  chat: 'viewChat'
+  chat: 'viewChatShell'
 }
 
 /**
@@ -791,6 +881,7 @@ function setView(view) {
      不回落的话会变成"所有页面一起隐身"—— 一屏空白，且没有任何报错。 */
   var target = Object.prototype.hasOwnProperty.call(VIEW_IDS, view) ? view : 'office'
   state.view = target
+  if (target !== 'chat') closeSessionNavDrawer()
   writeLocal(LS.lastView, target)
   /* 离开办公区就作废"正在改名"的意图：否则回到办公区时编辑器会突然弹回来 */
   if (target !== 'office') groupRenameIntent = null

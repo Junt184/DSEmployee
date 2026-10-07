@@ -468,7 +468,35 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
     </section>
   </section>
 
-  <section class="hidden" id="viewChat">
+  <section class="chat-shell hidden" id="viewChatShell">
+    <nav class="chat-nav-rail" id="employeeNavRail" aria-label="员工导航">
+      <button id="btnChatSessions" class="ghost chat-nav-open" type="button" aria-expanded="false" aria-controls="sessionPanel" title="展开员工与会话">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M9 4v16M13 9h4M13 13h4"></path></svg>
+        <span>员工</span>
+      </button>
+      <button class="ghost chat-nav-current" id="btnNavCurrent" type="button" aria-controls="sessionPanel" title="当前员工 · 展开员工与会话">
+        <span id="navCurrentAvatar"></span><span id="navCurrentName">员工</span>
+      </button>
+    </nav>
+    <div class="chat-nav-backdrop hidden" id="employeeNavBackdrop" aria-hidden="true"></div>
+    <aside class="chat-sessions hidden" id="sessionPanel" aria-label="员工与会话">
+      <div class="cs-nav-header">
+        <div class="cs-tree-label" id="sessionPanelTitle">员工与会话<span class="muted">点击名字切换员工，箭头展开会话</span></div>
+        <button id="btnPanel" class="ghost cs-nav-close" type="button" aria-expanded="true" aria-controls="sessionPanel" aria-label="收起员工与会话" title="收起员工与会话">‹</button>
+      </div>
+      <ul class="list" id="sessionList"></ul>
+      <div class="cs-nav-footer">
+        <input id="newSessionTitle" class="cs-create-input" type="text" placeholder="会话名称（可选）" maxlength="80" autocomplete="off" aria-label="新会话名称">
+        <details class="chat-advanced">
+          <summary>高级</summary>
+          <div class="muted cs-effective">生效 preset：<code id="effectivePreset"></code></div>
+          <input id="presetInput" type="text" placeholder="agentPreset（可选，新建会话时使用）">
+          <button id="btnReloadSessions" class="ghost">刷新会话列表</button>
+        </details>
+        <div class="chat-session-tools" id="sessionTools"></div>
+      </div>
+    </aside>
+    <section id="viewChat">
     <!-- ── 秘书页外壳（岗位 layout="secretary" 时才显示；其余岗位这一页原样不动）──
          左立绘 / 右对话（气泡区独立滚动 + galgame 对话框），顶部一个下拉箭头拉出全屏看板。
          立绘现在是**占位剪影**：真素材（部件式帧图）到位后由 script/67-secretary.ts 换上，
@@ -491,47 +519,23 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
              没选员工时这里是空的，CSS 用 :empty 把整列收成 0。 -->
         <span class="chat-peer-avatar" id="chatPeerAvatar"></span>
         <span class="chat-peer-name" id="employeeTitle">对话</span>
-        <span class="chat-peer-status"><span class="chat-dot online" id="chatDot"></span><span id="streamState"></span><!--
+        <span class="chat-peer-status"><span class="chat-peer-position" id="chatPeerPosition"></span><span class="chat-dot online" id="chatDot"></span><span id="streamState"></span><!--
           上下文占用小圈：数字来自 dsh 的 session/projection 帧（解析见 script/65-chat.ts）。
           没有数据时整块隐藏 —— **绝不显示 0%**（那是在编数字）。点一下展开构成。
         --><button class="ctx-ring hidden" id="ctxRing" type="button" aria-label="上下文占用" title=""></button><span class="ctx-pop hidden" id="ctxPop"></span></span>
       </div>
       <div class="chat-top-cell" id="quadTop"></div>
       <div class="chat-top-actions">
-        <button id="btnChatSessions" class="ghost" aria-haspopup="true" aria-expanded="false" aria-controls="sessionPanel">会话</button>
         <button id="btnNewSession" class="ghost">新会话</button>
         <!-- 本页皮肤（日间 / 作业室）：**只属于四宫格那一页**，其余页面这一页与从前一样 -->
         <button id="btnQuadSkin" class="ghost quad-skin-btn" aria-pressed="false">🖥️ 作业室</button>
-        <!-- 左右两栏的折叠开关各管各的，分别沿用设备偏好。
-             左栏只在 ≥1200px 常驻（中档与窄屏的左栏是上面那个「会话」抽屉），
-             所以 #btnPanel 也只在那一档出现；右栏窄屏根本摆不下。两个按钮都由 CSS
-             控可见性 —— 宁可不给，也不给一个按了没反应的死键。
-
-             ⚠️ 文案必须**说清它是个折叠开关**。原来只写「会话」「上下文」，与上面的
-             「会话」抽屉、与"切到某某页"长得一样，真实反馈是"找不到收侧栏的按钮"。
-             所以写成「…栏折叠」；收起后由 JS 改成「…栏展开」—— 动作变了还喊"折叠"就是假话。 -->
-        <button id="btnPanel" class="ghost" aria-pressed="false" title="收起左侧的会话栏">会话栏折叠</button>
         <button id="btnAside" class="ghost" aria-pressed="false" title="收起右侧的上下文栏">上下文栏折叠</button>
       </div>
-    </div>
-    <div class="chat-sessions hidden" id="sessionPanel">
-      <div class="cs-tree-label">员工与会话<span class="muted">点击名字切换员工</span></div>
-      <ul class="list" id="sessionList"></ul>
-      <input id="newSessionTitle" class="cs-create-input" type="text" placeholder="会话名称（可选）" maxlength="80" autocomplete="off">
-      <details class="chat-advanced">
-        <summary>高级</summary>
-        <div class="muted cs-effective">生效 preset：<code id="effectivePreset"></code></div>
-        <input id="presetInput" type="text" placeholder="agentPreset（可选，新建会话时使用）">
-        <button id="btnReloadSessions" class="ghost">刷新会话列表</button>
-      </details>
-      <!-- 窄屏工具槽：手机上「压缩上下文 / 沉淀为技能」会被搬到这里（见 placeChatTools）。
-           桌面端这个槽是空的，靠 :empty 隐藏 —— 那两个按钮留在输入区。 -->
-      <div class="chat-session-tools" id="sessionTools"></div>
     </div>
     <!-- ── 四宫格外壳（岗位 layout="quad" 时才显示）──
          左上 当前目标（工作区文件：人写的授权范围 + 员工写的进度）
          左下 下一步（dsh 的 todos 投影，实时）
-         右上 指挥栏（未决审批 / 会话折叠栏 / 专属技能，由脚本渲染）
+         右上 指挥栏（未决审批 / 专属技能，由脚本渲染）
          右下 对话（就是上面那几个原有元素，一格都不复制）
          窄屏不摆四格（四个都看不清），改成一次摊开一格的抽屉：下面那排按钮。 -->
     <section class="quad-cell quad-tl" id="quadTl" aria-label="左上 · 当前目标"></section>
@@ -581,6 +585,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
         <button id="btnBoardFollowup" class="primary">围绕结论继续追问</button>
       </div>
     </div>
+    </section>
   </section>
 </main>
 

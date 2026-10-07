@@ -80,7 +80,7 @@ function selectEmployee(employeeId, options) {
   renderEmployees()
   renderSessions()
   clearMessages('（正在载入最近会话…）')
-  toggleSessionPanel(false)
+  closeSessionNavDrawer()
   /* 点了工位就是「去找这位同事」：切到聊天视图 */
   setView('chat')
   syncControls()
@@ -287,17 +287,12 @@ function cacheEmployeeSessions(employeeId, sessions, revision) {
   entry.sessions = next
   entry.error = ''
   if (state.selectedEmployeeId === employeeId) state.sessions = next
-  if (state.view === 'chat' && isRegularSessionTree()) renderSessions()
-}
-
-function isRegularSessionTree() {
-  var chat = $('viewChat')
-  return chat !== null && !chat.classList.contains('layout-secretary') && !chat.classList.contains('layout-quad')
+  if (state.view === 'chat') renderSessions()
 }
 
 /* 展开的员工才补拉列表；已有工位轮询快照时直接复用。 */
 function loadSessionTree() {
-  if (!isRegularSessionTree() || state.phase !== 'ready' || state.view !== 'chat') return
+  if (state.phase !== 'ready' || state.view !== 'chat') return
   state.employees.forEach(function (employee) {
     var id = String(employee.id || '')
     if (id === '' || !state.expandedSessionEmployees.has(id)) return
@@ -361,20 +356,30 @@ function reloadEmployeeSessions(employeeId) {
 }
 
 function renderSessions() {
+  updateEmployeeNavigation()
   var list = $('sessionList')
   if (list === null) return
   /* 轮询刷新时保留正在输入的会话名称。 */
   if (list.querySelector('.cs-rename') !== null) return
+  var scrollTop = list.scrollTop
+  var active = document.activeElement
+  var row = active !== null && list.contains(active) ? active.closest('[data-employee-id]') : null
+  var employeeId = row === null ? '' : row.getAttribute('data-employee-id')
+  var sessionId = row === null ? null : row.getAttribute('data-session-id')
+  var control = active === null ? '' : ['cs-employee-toggle', 'cs-employee-select', 'cs-archive', 'cs-edit'].find(function (name) {
+    return active.classList.contains(name)
+  }) || ''
   clear(list)
-  if (isRegularSessionTree()) {
-    renderSessionTree(list)
-    return
+  renderSessionTree(list)
+  list.scrollTop = scrollTop
+  /* 实时刷新列表时保留键盘落点，避免展开后焦点突然掉回页面。 */
+  if (row !== null) {
+    var replacement = Array.from(list.querySelectorAll('[data-employee-id]')).find(function (node) {
+      return node.getAttribute('data-employee-id') === employeeId && node.getAttribute('data-session-id') === sessionId
+    })
+    var focus = replacement === undefined ? null : control === '' ? replacement : replacement.querySelector('.' + control)
+    if (focus !== null) focus.focus({ preventScroll: true })
   }
-  if (state.selectedEmployeeId === null) {
-    list.appendChild(el('li', 'empty', '（先在办公区点选一个同事）'))
-    return
-  }
-  appendSessionRows(list, state.selectedEmployeeId, state.sessions)
 }
 
 function appendSessionRows(list, employeeId, sessions, pending) {
@@ -404,12 +409,6 @@ function appendSessionRows(list, employeeId, sessions, pending) {
     archiveGroup.appendChild(toggle)
     archiveGroup.appendChild(children)
     list.appendChild(archiveGroup)
-  }
-  if (!isRegularSessionTree()) {
-    var legacyFresh = el('li', 'item compact cs-new', '＋ 新会话')
-    legacyFresh.onclick = function () { createSession() }
-    list.appendChild(legacyFresh)
-    return
   }
   var fresh = el('li', 'cs-new')
   var create = el('button', 'ghost', '＋ 新会话')
@@ -518,6 +517,7 @@ function renderSessionTree(list) {
       choose.setAttribute('aria-pressed', id === state.selectedEmployeeId ? 'true' : 'false')
       choose.onclick = function () {
         if (state.selectedEmployeeId !== id) selectEmployee(id)
+        else closeSessionNavDrawer()
       }
       head.appendChild(toggle)
       head.appendChild(choose)

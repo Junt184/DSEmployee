@@ -202,7 +202,7 @@ function openSession(sessionId) {
   /* 换会话：丢弃未结算的沉淀（必须在 setRunning 之前清，否则运行→空闲转换会误结算） */
   distilling = false
   distillSnapshot = null
-  toggleSessionPanel(false)
+  closeSessionNavDrawer()
   /* 会话列表带着 running 标志：进会话时据此恢复发送/停止键形态 */
   var running = sameSession && turnRunning
   for (var i = 0; i < state.sessions.length; i += 1) {
@@ -1039,12 +1039,6 @@ function bindChatUi() {
     latest.classList.add('hidden')
     scrollMessages()
   }
-  var toggle = $('btnChatSessions')
-  if (toggle !== null) {
-    toggle.onclick = function () {
-      toggleSessionPanel()
-    }
-  }
   var input = $('promptInput')
   if (input !== null) {
     input.addEventListener('keydown', onPromptKeydown)
@@ -1105,18 +1099,28 @@ function placeChatTools(narrowOverride) {
   return false
 }
 
-/* 会话抽屉：首屏只剩对话，点顶栏「会话」才展开 */
+/* 同一个左侧入口覆盖所有岗位；桌面开关写偏好，窄屏抽屉只改临时状态。 */
 function toggleSessionPanel(show) {
-  var panel = $('sessionPanel')
-  if (panel === null) return
-  var toggle = $('btnChatSessions')
-  var want = typeof show === 'boolean' ? show : panel.classList.contains('hidden')
-  panel.classList.toggle('hidden', !want)
-  if (toggle !== null) toggle.setAttribute('aria-expanded', want ? 'true' : 'false')
+  var docked = sessionNavDocked()
+  var visible = docked ? state.panelVisible === true : state.sessionNavOpen === true
+  var want = typeof show === 'boolean' ? show : !visible
+  if (docked) {
+    applyPanelVisible(want)
+    if (!want) {
+      var opener = $('btnChatSessions')
+      if (opener !== null) opener.focus()
+    }
+  } else if (!want) closeSessionNavDrawer()
+  else {
+    state.sessionNavOpen = true
+    syncPanelToggle()
+  }
   if (want) {
     updateEffectivePreset()
     loadSessions()
     loadSessionTree()
+    var close = $('btnPanel')
+    if (close !== null) close.focus()
   }
 }
 
@@ -1366,6 +1370,10 @@ function toggleContextPop() {
 }
 
 function updateChatHeader() {
+  updateEmployeeNavigation()
+  var selectedEmployee = state.selectedEmployeeId === null ? null : employeeById(state.selectedEmployeeId)
+  var position = $('chatPeerPosition')
+  if (position !== null) position.textContent = selectedEmployee === null ? '' : (positionName(selectedEmployee.position) || '通用')
   var title = $('employeeTitle')
   if (title !== null && state.selectedEmployeeId !== null) {
     var peer = state.employeeNames.get(state.selectedEmployeeId) || shortId(state.selectedEmployeeId)

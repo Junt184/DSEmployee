@@ -576,8 +576,8 @@ function openBoard() {
   var pull = $('btnBoard')
   if (sheet === null) return
   secretaryState.open = true
-  /* 看板接管右侧阅读区；会话下拉若开着，先把它收回去。 */
-  if (typeof toggleSessionPanel === 'function') toggleSessionPanel(false)
+  /* 看板接管右侧阅读区；只关闭临时导航抽屉，保留桌面侧栏。 */
+  closeSessionNavDrawer()
   sheet.classList.remove('hidden')
   /* 触发过渡要**先让浏览器记录"元素此刻在屏幕外"这一帧**，否则同一次样式计算里
      改 transform 不产生过渡。这里用"读一次布局属性强制回流"，不用 requestAnimationFrame ——
@@ -663,8 +663,8 @@ function bindSecretaryUi() {
   var input = $('promptInput')
   if (input !== null) {
     input.addEventListener('focus', function () {
-      /* 输入是当前任务：会话下拉区收起，手机舞台缩成窄带，把高度让给键盘与消息。 */
-      if (typeof toggleSessionPanel === 'function') toggleSessionPanel(false)
+      /* 输入是当前任务：手机舞台缩成窄带，公共导航的桌面偏好保持不变。 */
+      closeSessionNavDrawer()
       setSecretaryKeyboardOpen(true)
       stageStandby()
     })
@@ -680,16 +680,10 @@ function bindSecretaryUi() {
   }
   /* Esc 收起看板：它铺满整屏，键盘用户必须有出口（另有 ✕ 按钮） */
   document.addEventListener('keydown', function (event) {
-    if (event.key !== 'Escape') return
+    if (event.key !== 'Escape' || event.defaultPrevented || state.sessionNavOpen === true) return
     if (secretaryState.open) {
       closeBoard()
       return
-    }
-    var panel = $('sessionPanel')
-    if (panel !== null && panel.classList.contains('hidden') !== true) {
-      if (typeof toggleSessionPanel === 'function') toggleSessionPanel(false)
-      var toggle = $('btnChatSessions')
-      if (toggle !== null && typeof toggle.focus === 'function') toggle.focus()
     }
   })
 }

@@ -4,7 +4,7 @@
  * 本段的边界（为什么这样切）：
  *   · **外壳只管位置与折叠**，内容一律来自两处已有实现：
  *       格位面板 → 80-panels 的注册表（`renderPanelsInto`，与右栏同一条渲染路径）
- *       右上三段 → `appendApprovalBlock` / `toggleSessionPanel` / `appendSkillBlock`
+ *       右上审批与技能 → `appendApprovalBlock` / `appendSkillBlock`
  *     —— 四宫格**不复制**任何取数。复制一份的必然结果是"角标写 1、右栏写 2"这种
  *     没人查得出来的分叉（秘书页那一轮定下的规矩）。
  *   · **对话格（右下）一行不改**：气泡、流式、附件、断线、IME 仍是 65-chat 那一份，
@@ -15,7 +15,7 @@
  * 三个格子的分工（与设计稿 docs/08 一致）：
  *   左上 当前目标 = scope.json（**人写**）+ board.json（**员工写**），控制台只读
  *   左下 下一步   = dsh 的 todos 投影（实时，零维护）+ 上一轮收尾
- *   右上 指挥栏   = 未决审批（行内裁决）+ 会话（折叠栏）+ 专属技能 + 岗位追加面板
+ *   右上 指挥栏   = 未决审批（行内裁决）+ 专属技能 + 岗位追加面板
  */
 export const CHUNK_68_QUAD = String.raw`
 /* ═══════════ 9.5 四宫格外壳（岗位 layout: 'quad'）═══════════ */
@@ -28,7 +28,7 @@ var QUAD_LAYOUT = 'quad'
  * 为什么需要它：应急响应是**对话驱动**的岗位（提案、解释、追问都在对话里），
  * 而四宫格把对话压在右下那一格里（约 1/4 屏）。这一排法只在网格上不同：
  *   左上 事件台 ｜ 右侧整列：对话
- *   左下 处置队列 ｜（会话/技能折成顶栏下的一条）
+ *   左下 处置队列 ｜（技能折成顶栏下的一条）
  * 格位、面板、皮肤、窄屏抽屉全部与 quad 共用同一份实现。
  */
 var QUAD_CHAT_LAYOUT = 'quad-chat'
@@ -266,7 +266,7 @@ function renderQuadPlan() {
 }
 
 /**
- * 右上「指挥栏」：岗位面板 → 未决审批（**只在真有未决时出现**）→ 会话折叠栏 → 专属技能折叠栏。
+ * 右上「指挥栏」：岗位面板 → 未决审批（**只在真有未决时出现**）→ 专属技能折叠栏；员工与会话在公共导航。
  *
  * 为什么审批段改成条件渲染（2026-09-24）：安全监测岗**没有处置权限**，审批常态是 0，
  * 而"本岗位无处置权限，不产生审批"这句话一辈子不变 —— 常驻一个永远不变的数字等于白占位置。
@@ -283,46 +283,10 @@ function renderQuadTrCell(tr, employee, ids, ctx) {
   /* 2. 未决审批：一出现就是"她卡住了"，所以排在最上面、默认展开、带行内裁决；没有就不显示 */
   appendApprovalBlock(tr, employeeId, { actions: true, onlyWhenPending: true })
 
-  /* 3. 会话折叠栏：折起只留一行「当前：xxx」，展开是右列里的一条独立行（不盖住对话） */
-  var expanded = sessionPanelExpanded()
-  var foldBox = el('div', 'aside-block')
-  var foldHead = el('div', 'aside-title')
-  foldHead.appendChild(el('span', '', '会话'))
-  if (state.sessions.length > 0) foldHead.appendChild(el('span', 'badge', String(state.sessions.length)))
-  /* 用的是顶栏那个开关的**同一个**函数：两处状态不可能不一致。
-     键盘可达性由 makeFoldToggle 一并给齐（折叠行是 div，不是 button）。 */
-  makeFoldToggle(foldHead, expanded, function () {
-    toggleSessionPanel()
-    renderQuadCells()
-  })
-  foldBox.appendChild(foldHead)
-  if (!expanded) {
-    var title = currentSessionTitle()
-    foldBox.appendChild(el('div', 'aside-note', title === '' ? '还没打开会话' : '当前：' + title))
-    foldBox.appendChild(el('div', 'aside-note', '展开后列表在这一格下面，不覆盖对话'))
-  }
-  tr.appendChild(foldBox)
-
-  /* 4. 专属技能：默认折起（这一格只有 1/4 屏，全展开实测超出 54px），
+  /* 3. 专属技能：默认折起（这一格只有 1/4 屏，全展开实测超出 54px），
        但"有几个有问题"留在标题徽章上 —— 折的是列表，不是问题。 */
   var snapshot = state.aside !== null && state.aside.employeeId === employeeId ? state.aside : null
   appendSkillBlock(tr, employee, snapshot, { fold: true })
-}
-
-/** 会话列表此刻是否展开（顶栏按钮与折叠栏共用同一个真相：panel 的 hidden 类）。 */
-function sessionPanelExpanded() {
-  var panel = $('sessionPanel')
-  return panel !== null && !panel.classList.contains('hidden')
-}
-
-/** 当前会话标题（会话列表里的那份投影；没有就空串 —— 不编"未命名"）。 */
-function currentSessionTitle() {
-  var sessionId = state.selectedSessionId
-  if (sessionId === null || sessionId === '') return ''
-  for (var i = 0; i < state.sessions.length; i += 1) {
-    if (sessionIdOf(state.sessions[i]) === sessionId) return sessionTitleOf(state.sessions[i])
-  }
-  return ''
 }
 
 /* ── 工作区文件（格位面板的数据；按岗位配了哪些面板决定读哪些） ── */
