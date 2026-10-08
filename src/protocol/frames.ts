@@ -45,6 +45,13 @@ export const ERROR_CODES = [
   'forbidden',
   /** 设备需要配对审批 */
   'pairing-required',
+  /**
+   * 未配对设备在「只认配对码」模式下撞上了关着的注册窗口。
+   *
+   * 与 `pairing-required` 分开：那一个是"你的请求已经记下了，等批准/输码"，
+   * 这一个是"连记录都没落，等窗口开了再来" —— 两者给用户的下一步完全不同。
+   */
+  'pairing-closed',
   /** 设备令牌/共享密钥不匹配 */
   'auth-mismatch',
   /** 设备令牌被吊销 */
@@ -123,6 +130,10 @@ export const EVENT_NAMES = [
   /** 设备配对生命周期 */
   'pair.requested',
   'pair.resolved',
+  /** 已配对设备改名了（别的控制台要跟着换显示名，否则两台设备看到的名字不一致） */
+  'device.renamed',
+  /** 新设备进门方式变了（只认配对码 / 也允许人工批准）—— 设备页据此换掉那一排按钮 */
+  'pairing.approval.changed',
   /**
    * 定时任务的定义变了（新建/改/删/启停）。
    *

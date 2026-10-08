@@ -34,7 +34,8 @@ function loadDevices() {
     .then(function (payload) {
       state.devices = {
         pending: Array.isArray(payload && payload.pending) ? payload.pending : [],
-        paired: Array.isArray(payload && payload.paired) ? payload.paired : []
+        paired: Array.isArray(payload && payload.paired) ? payload.paired : [],
+        approval: payload && payload.approval === 'operator' ? 'operator' : 'code-only'
       }
       pushRaw('device.list 结果', payload)
       renderDevices()
@@ -54,12 +55,21 @@ function renderDevices() {
   clear(pairedBox)
 
   /* 有待批准设备时要"一眼看见"：横幅 + 标题前缀。只有自己挂出的横幅才由自己撤下，
-     免得把别的流程（连接错误等）的提示误清掉。 */
+     免得把别的流程（连接错误等）的提示误清掉。
+
+     文案跟着进门方式走：只认配对码时，这些条目**没有"批准"这个动作**，
+     喊「等待配对批准」等于指着一个不存在的按钮 —— 用户会以为界面坏了。 */
+  var operatorMode = state.devices.approval === 'operator'
   var pendingCount = state.devices.pending.length
   if (pendingCount > 0 && state.phase === 'ready') {
-    setBanner('有 ' + String(pendingCount) + ' 台设备等待配对批准 —— 在下方「设备」卡片里处理。', 'warn')
+    setBanner(
+      operatorMode
+        ? '有 ' + String(pendingCount) + ' 台设备等待配对批准 —— 在下方「设备」卡片里处理。'
+        : '有 ' + String(pendingCount) + ' 台设备在等配对码 —— 让它在注册窗口开着时输入配对码，或在下方直接拒绝。',
+      'warn'
+    )
     state.pairBanner = true
-    document.title = '【' + String(pendingCount) + ' 台待批准】' + state.baseTitle
+    document.title = '【' + String(pendingCount) + ' 台待配对】' + state.baseTitle
   } else if (state.pairBanner === true) {
     state.pairBanner = false
     setBanner('', 'info')
@@ -71,26 +81,39 @@ function renderDevices() {
     var item = el('li', 'item')
     var top = el('div', 'item-top')
     top.appendChild(el('span', 'name', String(request.displayName || request.clientId || '未命名设备')))
-    top.appendChild(el('span', 'badge warn', '待审批'))
+    top.appendChild(el('span', 'badge warn', operatorMode ? '待审批' : '等配对码'))
     item.appendChild(top)
     item.appendChild(el('div', 'role', deviceRequestText(request)))
     item.appendChild(el('div', 'meta', 'deviceId ' + String(request.deviceId || '')))
     item.appendChild(el('div', 'meta', '请求 scopes：' + (Array.isArray(request.scopes) ? request.scopes.join(' ') : '无')))
-    var scopeInput = el('input', 'note')
-    scopeInput.type = 'text'
-    scopeInput.placeholder = '批准哪些 scope（空格分隔，留空 = 按请求批准）'
-    scopeInput.value = Array.isArray(request.scopes) ? request.scopes.join(' ') : ''
-    item.appendChild(scopeInput)
     var row = el('div', 'row')
-    var approve = el('button', 'primary', '批准')
-    var reject = el('button', 'danger', '拒绝')
-    approve.onclick = function () {
-      approveDevice(String(request.requestId || ''), String(scopeInput.value || ''))
+    if (operatorMode) {
+      var scopeInput = el('input', 'note')
+      scopeInput.type = 'text'
+      scopeInput.placeholder = '批准哪些 scope（空格分隔，留空 = 按请求批准）'
+      scopeInput.value = Array.isArray(request.scopes) ? request.scopes.join(' ') : ''
+      item.appendChild(scopeInput)
+      var approve = el('button', 'primary', '批准')
+      approve.onclick = function () {
+        approveDevice(String(request.requestId || ''), String(scopeInput.value || ''))
+      }
+      row.appendChild(approve)
+    } else {
+      /* 只认配对码：**不给批准按钮**。不是藏起来舍不得给，而是服务端会拒绝 ——
+         一个按下去必然报错的按钮比没有按钮更糟（用户会以为是坏掉了）。 */
+      item.appendChild(
+        el(
+          'div',
+          'muted',
+          '只认配对码：请在「允许新设备注册」窗口开着时，让这台设备自己输入配对码。' +
+            '它拿不到码就进不来 —— 这里没有可点的批准。'
+        )
+      )
     }
+    var reject = el('button', 'danger', '拒绝')
     reject.onclick = function () {
       rejectDevice(String(request.requestId || ''))
     }
-    row.appendChild(approve)
     row.appendChild(reject)
     item.appendChild(row)
     box.appendChild(item)
@@ -111,6 +134,23 @@ function renderDevices() {
     if (device.lastSeenAtMs !== undefined) {
       item.appendChild(el('div', 'meta', '最近出现 ' + new Date(Number(device.lastSeenAtMs)).toLocaleString() + ' · ' + String(device.lastSeenIp || '')))
     }
+    /* 改名：名字是清单上唯一能让人**认出这台设备**的东西（其余字段都是哈希与平台串）。
+       做成就地一行输入而不是弹窗：清单里常常要连着改好几台，弹窗会让人反复开关。 */
+    var nameRow = el('div', 'row')
+    var nameInput = el('input', 'note')
+    nameInput.type = 'text'
+    nameInput.maxLength = 40
+    nameInput.value = String(device.displayName || '')
+    nameInput.placeholder = '给这台设备起个认得出的名字'
+    nameInput.setAttribute('aria-label', '设备名称')
+    var saveName = el('button', 'ghost', '保存名称')
+    saveName.onclick = function () {
+      saveName.disabled = true
+      renameDevice(String(device.deviceId || ''), String(nameInput.value || ''), saveName)
+    }
+    nameRow.appendChild(nameInput)
+    nameRow.appendChild(saveName)
+    item.appendChild(nameRow)
     var row = el('div', 'row')
     var rotate = el('button', 'ghost', '轮换令牌')
     var revoke = el('button', 'danger', '吊销令牌')
@@ -206,6 +246,35 @@ function removeDevice(deviceId) {
     })
     .catch(function (error) {
       reportRpcError('device.pair.remove', error)
+    })
+}
+
+/**
+ * 给已配对设备改名。
+ *
+ * 幂等键带上新名字：同一台设备连点两次"保存名称"只该发一次请求，而不带新名字的键
+ * 会把"我想改成另一个名字"挡在幂等窗口外（第二次改名看起来像重复请求）。
+ */
+function renameDevice(deviceId, name, button) {
+  var trimmed = name.replace(/^\s+|\s+$/g, '')
+  if (trimmed === '') {
+    toast('名字不能为空 —— 空名字等于把"分不清谁是谁"原样还回去', 'warn')
+    if (button) button.disabled = false
+    return
+  }
+  rpc(
+    'device.rename',
+    { deviceId: deviceId, name: trimmed },
+    { idempotencyKey: 'rename-' + deviceId + '-' + trimmed }
+  )
+    .then(function (payload) {
+      pushRaw('device.rename 结果', payload)
+      toast(payload && payload.changed === false ? '名字没有变化' : '已改名为「' + trimmed + '」', 'ok')
+      return loadDevices()
+    })
+    .catch(function (error) {
+      reportRpcError('device.rename', error)
+      if (button) button.disabled = false
     })
 }
 
@@ -614,7 +683,7 @@ function renderPairingWindow(state) {
     box.appendChild(el('div', 'muted', line))
     if (pairedCount === 0) {
       box.appendChild(
-        el('div', 'muted', '还没有任何已配对设备：第一次配对必须开着窗口（批准在 Hub 本机用 dse pair approve 做）。'),
+        el('div', 'muted', '还没有任何已配对设备：第一次配对必须开着窗口（Hub 本机执行 dse pair-code 出码）。'),
       )
     }
   } else {
@@ -652,6 +721,50 @@ function renderPairingWindow(state) {
   if (open) {
     box.appendChild(el('div', 'muted', '窗口期收到注册请求会同时推到你手机（若已开手机通知）。'))
   }
+
+  /* 进门方式：与窗口是两个独立的开关（窗口管门开不开，这里管进门要给什么）。
+     放在同一张卡片里而不是另开一张 —— 它们本来就是同一件事的两个维度。 */
+  var operatorMode = state.devices.approval === 'operator'
+  box.appendChild(
+    el(
+      'div',
+      'muted',
+      operatorMode
+        ? '进门方式：配对码 + 人工批准 —— 待配对请求可以在下面直接点「批准」。'
+        : '进门方式：只认配对码（默认）—— 待配对请求只能被配对码兑换，人工批准会被服务端拒绝。'
+    )
+  )
+  var modeRow = el('div', 'row')
+  var modeBtn = el('button', 'ghost', operatorMode ? '只允许配对码' : '允许人工批准')
+  modeBtn.onclick = function () {
+    modeBtn.disabled = true
+    setPairingApproval(operatorMode ? 'code-only' : 'operator', modeBtn)
+  }
+  modeRow.appendChild(modeBtn)
+  box.appendChild(modeRow)
+}
+
+function setPairingApproval(approval, button) {
+  rpc('pairing.approval.set', { approval: approval }, { idempotencyKey: 'pairing-approval-' + approval })
+    .then(function (payload) {
+      pushRaw('pairing.approval.set 结果', payload)
+      toast(
+        approval === 'code-only'
+          ? '进门方式已改为「只认配对码」—— 人工批准不再生效（Hub 本机的 dse pair approve 仍是后路）'
+          : '进门方式已改为「也允许人工批准」—— 待配对请求可以在设备页直接批准',
+        'ok'
+      )
+      /* 重读窗口状态而不是拿这次返回值去渲染：这个返回值里没有 open/untilMs，
+         直接塞进去会把"窗口开着"画成"已关闭"（差一点就这么写了）。 */
+      return loadDevices().then(function () {
+        loadPairingWindow()
+        return null
+      })
+    })
+    .catch(function (error) {
+      reportRpcError('pairing.approval.set', error)
+      if (button) button.disabled = false
+    })
 }
 
 function setPairingWindow(params, okMessage, button) {

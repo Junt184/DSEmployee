@@ -81,6 +81,13 @@ export const METHODS = {
     roles: OPERATOR_ONLY,
     summary: '移除一条已配对记录（该设备令牌随之失效）',
   },
+  'device.rename': {
+    scopes: ['device.pair'],
+    route: 'hub',
+    idempotent: true,
+    roles: OPERATOR_ONLY,
+    summary: '给已配对设备改名（只改显示名，不动 role/scope/令牌）',
+  },
   /**
    * 配对码兑换 —— bootstrap 专用口子。
    *
@@ -519,6 +526,19 @@ export const METHODS = {
     idempotent: true,
     roles: OPERATOR_ONLY,
     summary: '开/关「允许新设备注册」窗口（开着时未配对的设备才能看到授权码入口）',
+  },
+  'pairing.approval': {
+    scopes: ['device.pair'],
+    route: 'hub',
+    roles: OPERATOR_ONLY,
+    summary: '查新设备的进门方式（只认配对码 / 也允许人工批准）',
+  },
+  'pairing.approval.set': {
+    scopes: ['device.pair'],
+    route: 'hub',
+    idempotent: true,
+    roles: OPERATOR_ONLY,
+    summary: '改新设备的进门方式（默认只认配对码；人工批准可关掉）',
   },
   'push.key': {
     scopes: ['employee.read'],

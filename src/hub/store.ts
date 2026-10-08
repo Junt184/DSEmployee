@@ -73,6 +73,24 @@ export interface HubConfig {
    * `undefined` = 一直开着，直到有人手动关。
    */
   pairingWindowUntilMs?: number
+  /**
+   * 新设备进门的方式：`'code-only'`（默认）= 只认配对码；`'operator'` = 也允许
+   * 在控制台/接口上人工批准一条待配对请求。
+   *
+   * **为什么默认收成只认配对码**：人工批准这条路上的判断依据只有 clientId、平台、
+   * 来源 IP —— 而这几样恰好是"一堆 Mac 浏览器"里分不出谁是谁的东西（真实反馈）。
+   * 一扇安全性取决于人在模糊列表前是否谨慎的门，等于把风险挂在人的注意力上。
+   * 配对码那条路的信任锚是"能看到 Hub 终端输出 / 能在 Hub 本机执行 `dse pair-code`"，
+   * 与 `dse pair approve` 同级，而且是限时 + 一次性 + 防爆破的。
+   *
+   * 两者并存时的实际后果（改这个字段之前想清楚）：
+   *   · `code-only` 且注册窗口**关着** ⇒ 未配对设备连 `/ws` 直接吃闭门羹，
+   *     **不产生待配对记录**（陌生人刷不了你的台账，也没有可误批的条目）；
+   *   · `code-only` 且窗口**开着** ⇒ 产生待配对记录，但**只有配对码能兑换它**
+   *     （`device.pair.approve` 会被拒；Hub 本机的 `dse pair approve` 仍可用 —— 那是 SSH 后路）；
+   *   · `operator` ⇒ 旧的"等人批准"那条路原样保留。
+   */
+  pairingApproval?: 'code-only' | 'operator'
 }
 
 export interface HubState {

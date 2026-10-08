@@ -38,6 +38,7 @@ import { HubClient } from './client/hub-client.ts'
 import { callHubLocalControl } from './hub/local-control.ts'
 import {
   approvePairing,
+  pairingApprovalMode,
   pairingWindowOpen,
   rejectPairing,
   removePairing,
@@ -45,7 +46,7 @@ import {
   rotateToken,
 } from './hub/devices.ts'
 import { hashPairCode, issuePairCode, newPairCode } from './hub/paircode.ts'
-import { safeName } from './node/agent.ts'
+import { HUB_URL_FILE, safeName } from './node/agent.ts'
 import { showPairCodeNotification } from './util/notify.ts'
 import { normalizeScopes } from './protocol/index.ts'
 import { dseHome, expandHome, pathExists, readJsonFile, readTextFile, writeJsonFile } from './util/fsx.ts'
@@ -498,7 +499,7 @@ async function singleNodeName(nodesRoot: string): Promise<string | undefined> {
 async function runPair(argv: string[]): Promise<number> {
   const [sub, ...rest] = argv
   if (sub === undefined) {
-    process.stderr.write('用法：dse pair list|approve|reject|remove\n')
+    process.stderr.write('用法：dse pair list|approve|reject|remove|rename\n')
     return 2
   }
 
@@ -644,6 +645,47 @@ async function runPair(argv: string[]): Promise<number> {
     return removed ? 0 : 1
   }
 
+  if (sub === 'rename') {
+    const { values, positionals } = parseArgs({
+      args: rest,
+      options: { home: { type: 'string' } },
+      allowPositionals: true,
+    })
+    const deviceId = positionals[0]
+    /* 名字可能含空格（"客厅的 iPad"），所以把剩下的位置参数拼回去，
+       而不是要求用户自己加引号。 */
+    const name = positionals.slice(1).join(' ').trim()
+    if (deviceId === undefined || name === '') {
+      process.stderr.write('用法：dse pair rename <deviceId> <新名字>\n')
+      return 2
+    }
+    if (name.length > 40) {
+      process.stderr.write(`名字最多 40 个字符，收到 ${name.length} 个\n`)
+      return 2
+    }
+    const store = new HubStore(values.home)
+    await store.load()
+    const device = store.state().paired[deviceId]
+    if (device === undefined) {
+      process.stderr.write(`未找到已配对设备 ${deviceId}。用 dse pair list 看清单。\n`)
+      return 1
+    }
+    /* 运行中的 Hub 会把内存里的台账当成真相，所以**必须**让它知道这件事：
+       直接写文件会在 Hub 下一次 savePaired 时被内存里的旧名字覆盖回去。 */
+    const lock = await readJsonFile<{ pid?: number } | undefined>(store.files.lock, undefined)
+    if (isProcessAlive(lock?.pid)) {
+      process.stderr.write(
+        'Hub 正在运行：改名请走运行中的 Hub（控制台设备页，或 `dse rpc device.rename`）。\n' +
+          'CLI 直接写文件会被 Hub 内存里的旧台账覆盖回去 —— 这是刻意的，不是遗漏。\n',
+      )
+      return 1
+    }
+    device.displayName = name
+    await store.savePaired()
+    process.stdout.write(`已把 ${deviceId.slice(0, 12)}… 改名为「${name}」\n`)
+    return 0
+  }
+
   process.stderr.write(`未知子命令 "pair ${sub}"\n`)
   return 2
 }
@@ -691,9 +733,52 @@ async function runPairing(argv: string[]): Promise<number> {
   const lock = await readJsonFile<{ pid?: number } | undefined>(store.files.lock, undefined)
   const hubRunning = isProcessAlive(lock?.pid)
 
-  if (sub !== 'status' && sub !== 'open' && sub !== 'close') {
-    process.stderr.write('用法：dse pairing [status|open [--minutes N]|close]\n')
+  if (sub !== 'status' && sub !== 'open' && sub !== 'close' && sub !== 'approval') {
+    process.stderr.write('用法：dse pairing [status|open [--minutes N]|close|approval code-only|operator]\n')
     return 2
+  }
+
+  /* 进门方式：与窗口走同一条本机 IPC（同一个理由 —— 让唯一的 Hub 进程改自己的内存与磁盘）。
+     `dse pairing approval`（不带值）就是查当前方式。 */
+  if (sub === 'approval') {
+    const wanted = positionals[1]
+    if (wanted !== undefined && wanted !== 'code-only' && wanted !== 'operator') {
+      process.stderr.write(`进门方式只能是 code-only 或 operator，收到 "${wanted}"\n`)
+      return 2
+    }
+    if (hubRunning) {
+      try {
+        const result = (await callHubLocalControl(
+          store.root,
+          wanted === undefined ? 'pairing.approval' : 'pairing.approval.set',
+          wanted === undefined ? {} : { approval: wanted },
+        )) as { approval?: string }
+        const mode = result.approval === 'operator' ? 'operator' : 'code-only'
+        process.stdout.write(`\n${describeApprovalMode(mode)}\n\n`)
+        if (wanted !== undefined) {
+          process.stdout.write(
+            mode === 'code-only'
+              ? '待配对请求现在只有配对码能兑换（人工批准已被拒绝）。要加设备：先 `dse pairing open`。\n'
+              : '现在也可以在控制台设备页直接批准待配对请求了。\n',
+          )
+        }
+        return 0
+      } catch (error) {
+        process.stderr.write(
+          `Hub 进程仍在运行，但本机控制通道调用失败；为避免改出“磁盘已变、Hub 内存未变”的状态，CLI 不会直接写配置。\n` +
+            `详情：${error instanceof Error ? error.message : String(error)}\n`,
+        )
+        return 1
+      }
+    }
+    if (wanted !== undefined) {
+      process.stderr.write('Hub 当前未运行。请先启动 Hub，再执行此命令。\n')
+      return 1
+    }
+    process.stdout.write(
+      `\n${describeApprovalMode(pairingApprovalMode(store.state().config))}\n（Hub 当前已停止；这是磁盘上的最后状态）\n\n`,
+    )
+    return 0
   }
 
   let openMinutes: number | undefined
@@ -739,9 +824,19 @@ async function runPairing(argv: string[]): Promise<number> {
     ...(typeof config.pairingWindowUntilMs === 'number' ? { untilMs: config.pairingWindowUntilMs } : {}),
     pairedCount: Object.keys(store.state().paired).length,
     mode: config.pairingMode === 'closed' ? 'closed' : 'open',
+    approval: pairingApprovalMode(config),
   }
-  process.stdout.write(`\n${describePairingWindow(snapshot)}\n（Hub 当前已停止；这是磁盘上的最后状态）\n\n`)
+  process.stdout.write(
+    `\n${describePairingWindow(snapshot)}\n${describeApprovalMode(snapshot.approval)}\n（Hub 当前已停止；这是磁盘上的最后状态）\n\n`,
+  )
   return 0
+}
+
+/** 进门方式的一行人话。默认值是 `code-only`，所以"没设过"也要说清楚是它。 */
+function describeApprovalMode(mode: string): string {
+  return mode === 'operator'
+    ? '进门方式：配对码 + 人工批准（待配对请求可以在控制台直接批准）'
+    : '进门方式：只认配对码（默认）—— 新设备要在注册窗口开着时用配对码加入'
 }
 
 async function runToken(argv: string[]): Promise<number> {
@@ -1056,6 +1151,23 @@ async function runRelease(argv: string[]): Promise<number> {
 
 /* ────────────────────────────── rpc / identity ────────────────────────────── */
 
+/**
+ * 本机记住的 Hub 地址：`$DSE_HOME/hub-url`（节点连上 Hub 时由 agent 写下，见 node/agent.ts）。
+ *
+ * 读它而不是在 CLI 里再存一份：那个文件是**唯一**一份"这台机器该连哪个 Hub"的事实，
+ * scripts/run-node.sh 与 start-node.ps1 也读它。CLI 再存一份就会有两份可以分叉的真相。
+ * 缺文件/空文件返回 undefined —— 由调用方给出可执行的提示，而不是猜一个默认地址。
+ */
+async function rememberedHubUrl(home: string | undefined): Promise<string | undefined> {
+  try {
+    const text = await readTextFile(path.join(dseHome(home), HUB_URL_FILE))
+    const url = text.trim()
+    return url === '' ? undefined : url
+  } catch {
+    return undefined
+  }
+}
+
 async function runRpc(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -1074,8 +1186,15 @@ async function runRpc(argv: string[]): Promise<number> {
   })
 
   const method = positionals[0]
-  if (method === undefined || values.hub === undefined) {
-    process.stderr.write('用法：dse rpc <method> [params-json | --params-file <file>] --hub <ws-url>\n')
+  /* `--hub` 可以省：本机多半已经记着该连哪个 Hub（`$DSE_HOME/hub-url`，节点启动时写下的
+     那一份，scripts/ 里的启动脚本读的也是它）。要求人手打一遍完整地址没有道理 ——
+     实测的失败就是这样：`~/.dsemployee/hub-url` 里明明有正确地址，命令却要求显式给。 */
+  const hubUrl = values.hub ?? (await rememberedHubUrl(values.home))
+  if (method === undefined || hubUrl === undefined) {
+    process.stderr.write(
+      '用法：dse rpc <method> [params-json | --params-file <file>] [--hub <ws-url>]\n' +
+        '  没给 --hub 时读 $DSE_HOME/hub-url（本机记住的那个 Hub 地址）。\n',
+    )
     return 2
   }
 
@@ -1100,7 +1219,7 @@ async function runRpc(argv: string[]): Promise<number> {
 
   const client = await HubClient.create({
     identityFile,
-    url: values.hub,
+    url: hubUrl,
     role: 'operator',
     scopes: parseScopes(
       values.scopes,

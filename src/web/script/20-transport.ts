@@ -391,6 +391,13 @@ function onEvent(frame) {
     loadDevices()
     return
   }
+  /* 改名与进门方式：别的控制台（另一台已配对设备）动了，这边跟着换显示名/换按钮。
+     不处理的话，两台设备会同时看着同一份台账显示两个不同的名字。 */
+  if (event === 'device.renamed' || event === 'pairing.approval.changed') {
+    loadDevices()
+    loadPairingWindow()
+    return
+  }
   if (event === 'employee.changed' || event === 'node.changed') {
     /* loadEmployees 收尾时会比对在线状态：选中的那位从离线变回在线就重接会话
        （见 noteNodeOnline —— 判据是"翻转那一次"，不是"每次事件都清屏重读"）。 */

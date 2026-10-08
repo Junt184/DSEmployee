@@ -330,6 +330,32 @@ export function applyPairingWindow(
   }
 }
 
+/* ────────────────────── 新设备进门的方式（配对码 / 人工批准）──────────────────────
+ *
+ * 与窗口分开是因为它们是**两件事**：窗口管"门开不开"，这里管"进门要给什么"。
+ * 组合起来才是完整的姿态，四种组合都有意义，没有哪个是废的：
+ *   窗口开 + code-only  ⇒ 加设备：打开窗口，让设备输配对码（默认，也是推荐）
+ *   窗口开 + operator   ⇒ 加设备：既可以给码，也可以人工点批准
+ *   窗口关 + code-only  ⇒ 谁也进不来（陌生设备连握手都不产生记录）
+ *   窗口关 + operator   ⇒ 陌生设备能连上来并留下一条待审批（旧行为）
+ */
+
+/** 当前拿什么进门的。默认 `code-only` —— 少了这个字段就是"只认配对码"。 */
+export function pairingApprovalMode(config: Pick<HubConfig, 'pairingApproval'>): 'code-only' | 'operator' {
+  return config.pairingApproval === 'operator' ? 'operator' : 'code-only'
+}
+
+/** 改进门方式（**就地把 config 改掉**，落盘由调用方负责）。 */
+export function applyPairingApproval(config: HubConfig, mode: 'code-only' | 'operator'): 'code-only' | 'operator' {
+  config.pairingApproval = mode
+  return mode
+}
+
+/** 除了配对码，还可以人工批准一条待配对请求吗。 */
+export function operatorApprovalAllowed(config: Pick<HubConfig, 'pairingApproval'>): boolean {
+  return pairingApprovalMode(config) === 'operator'
+}
+
 /** 用令牌查已配对设备。只做哈希比对，失败返回 undefined（不区分"不存在"与"令牌错"）。 */
 export function findByToken(store: HubStore, token: string): PairedDevice | undefined {
   const digest = hashToken(token)

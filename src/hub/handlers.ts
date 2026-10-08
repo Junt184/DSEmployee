@@ -44,6 +44,8 @@ import {
   revokeToken,
   rotateToken,
   sweepExpiredPairings,
+  operatorApprovalAllowed,
+  pairingApprovalMode,
 } from './devices.ts'
 import {
   lookupPairCode,
@@ -260,6 +262,9 @@ const deviceList: Handler = async (hub) => {
   if (expired.length > 0) hub.debug(`swept ${expired.length} expired pairing request(s)`)
   const state = hub.state()
   return {
+    /* 进门方式：控制台据此决定待配对那一段是"给批准按钮"还是"只等下一个人输码"。
+       放在这里而不是单独一个查询接口：设备页本来就是一次取全的。 */
+    approval: pairingApprovalMode(state.config),
     pending: Object.values(state.pending).map((request) => ({
       requestId: request.requestId,
       deviceId: request.deviceId,
@@ -297,6 +302,18 @@ const devicePairApprove: Handler = async (hub, conn, params) => {
     params,
     'device.pair.approve',
   )
+  /* 只认配对码时，这条路必须**拒绝**，而不是"警告一下照做"。
+     为什么：这条路的判断依据只有 clientId / 平台 / 来源 IP，而这几样在多台同类设备
+     之间根本分不出谁是谁（真实反馈：一整列「Mac 浏览器」）。安全性挂在人的注意力上
+     的门，迟早会被一次随手点击打开。配对码那条路是限时 + 一次性 + 防爆破的。
+     注意这**不影响** Hub 本机的 `dse pair approve`（它直接改状态文件，是 SSH 后路）。 */
+  if (!operatorApprovalAllowed(hub.state().config)) {
+    throw protocolError(
+      'bad-request',
+      '当前是「只允许配对码」模式：新设备必须在「允许新设备注册」窗口开着时用配对码加入。' +
+        '要人工批准，先在设备页把进门方式改成「允许人工批准」（或在 Hub 本机执行 dse pairing approval operator）',
+    )
+  }
   const approved = await approvePairing(hub.store, input.requestId, conn.deviceId, {
     ...(input.approvedScopes === undefined
       ? {}
@@ -456,6 +473,45 @@ const devicePairRemove: Handler = async (hub, _conn, params) => {
   const removed = await removePairing(hub.store, input.deviceId)
   if (!removed) throw protocolError('not-found', `device ${input.deviceId} is not paired`)
   return { deviceId: input.deviceId, removed: true }
+}
+
+/**
+ * 给已配对设备改名。
+ *
+ * 为什么必须有：`displayName` 只在配对那一刻由客户端自报，之后没有任何写入口 ——
+ * 于是清单上是清一色的「Mac 浏览器」「iPhone 浏览器」，人分不出谁是谁（真实反馈）。
+ * 而"分不清谁是谁"会直接削弱上一个动作：看到一条可疑记录时不敢吊销，
+ * 怕吊销的是自己。名字可改，这台设备才是一条**可辨认、可处置**的记录。
+ *
+ * 只改名字，不动 role / scope / 令牌 —— 改名不该是任何形式的提权路径。
+ */
+const deviceRename: Handler = async (hub, conn, params) => {
+  const input = parse(
+    z.object({
+      deviceId: z.string().min(1).max(128),
+      /* 收敛在 1..40：名字是给人看的，够长就行；同时挡掉空字符串与纯空白
+         （空名字等于把"分不清谁是谁"原样还回去）。控制字符会污染日志与列表。 */
+      name: z
+        .string()
+        .min(1)
+        .max(40)
+        .refine((value) => value.trim() !== '', 'name must not be blank')
+        .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), 'name must not contain control characters'),
+    }),
+    params,
+    'device.rename',
+  )
+  const state = hub.state()
+  const device = state.paired[input.deviceId]
+  if (device === undefined) throw protocolError('not-found', `device ${input.deviceId} is not paired`)
+  const name = input.name.trim()
+  /* 幂等：改成同一个名字不算变更，也不写盘 —— 否则重试会把落盘次数放大。 */
+  if (device.displayName === name) return { deviceId: device.deviceId, displayName: name, changed: false }
+  device.displayName = name
+  await hub.store.savePaired()
+  hub.log(`renamed device ${device.deviceId.slice(0, 12)}… to "${name}" (by ${conn.deviceId.slice(0, 12)}…)`)
+  hub.broadcastToScope('device.pair', 'device.renamed', { deviceId: device.deviceId, displayName: name })
+  return { deviceId: device.deviceId, displayName: name, changed: true }
 }
 
 const deviceTokenRotate: Handler = async (hub, conn, params) => {
@@ -1200,6 +1256,8 @@ const pairingWindowGet: Handler = async (hub) => {
     pairedCount: Object.keys(hub.state().paired).length,
     /** 本机（Hub 所在机器）之外的访问是否还能拿到页面 —— 控制台据此显示当前暴露面 */
     mode: config.pairingMode === 'closed' ? 'closed' : 'open',
+    /** 进门方式：设备页据此决定给不给"批准"按钮（与 device.list 同一份判断） */
+    approval: pairingApprovalMode(config),
   }
 }
 
@@ -1248,6 +1306,53 @@ const pairingWindowSet: Handler = async (hub, conn, params) => {
       : { untilMs: result.untilMs, remainingSec: Math.round((result.untilMs - Date.now()) / 1000) }),
     pairedCount: Object.keys(hub.state().paired).length,
     mode: result.open ? 'open' : 'closed',
+    approval: pairingApprovalMode(hub.state().config),
+  }
+}
+
+/* ────────────────────────────── 新设备进门方式 ────────────────────────────── */
+
+const pairingApprovalGet: Handler = async (hub) => {
+  const config = hub.state().config
+  const approval = pairingApprovalMode(config)
+  return {
+    approval,
+    /** 与 `device.list` 同一份判断，界面据此决定要不要给"批准"按钮 */
+    operatorApprovalAllowed: operatorApprovalAllowed(config),
+    windowOpen: hub.pairingWindowOpen(),
+    note:
+      approval === 'code-only'
+        ? '只认配对码：新设备要在「允许新设备注册」窗口开着时用配对码加入'
+        : '也允许人工批准：待配对请求可以在设备页直接批准',
+  }
+}
+
+/**
+ * 改「新设备进门方式」。与注册窗口是两个独立开关（见 store.ts 的字段注释）：
+ * 窗口管门开不开，这里管进门要给什么。
+ *
+ * ⚠️ 切到 `code-only` **不会**关闭已经打开的窗口，也不会清掉已有的待配对请求 ——
+ * 它只是让那些请求不能再被人工批准（只能被配对码兑换，或在到期时自动清理）。
+ * 想立刻清场就一并关窗。
+ */
+const pairingApprovalSet: Handler = async (hub, conn, params) => {
+  const input = parse(
+    z.object({ approval: z.enum(['code-only', 'operator']) }),
+    params,
+    'pairing.approval.set',
+  )
+  const applied = await hub.setPairingApproval(input.approval)
+  hub.log(`device approval mode → ${applied} (by ${conn.deviceId.slice(0, 12)}…)`)
+  hub.broadcastToScope('device.pair', 'pairing.approval.changed', { approval: applied })
+  const config = hub.state().config
+  return {
+    approval: applied,
+    operatorApprovalAllowed: operatorApprovalAllowed(config),
+    windowOpen: hub.pairingWindowOpen(),
+    note:
+      applied === 'code-only'
+        ? '只认配对码：新设备要在「允许新设备注册」窗口开着时用配对码加入'
+        : '也允许人工批准：待配对请求可以在设备页直接批准',
   }
 }
 
@@ -2917,6 +3022,7 @@ export const hubHandlers: Partial<Record<string, Handler>> = {
   'device.pair.approve': devicePairApprove,
   'device.pair.reject': devicePairReject,
   'device.pair.remove': devicePairRemove,
+  'device.rename': deviceRename,
   'device.pair.redeem': devicePairRedeem,
   'device.token.rotate': deviceTokenRotate,
   'device.token.revoke': deviceTokenRevoke,
@@ -2984,6 +3090,8 @@ export const hubHandlers: Partial<Record<string, Handler>> = {
   'job.self.remove': jobSelfRemove,
   'pairing.window': pairingWindowGet,
   'pairing.window.set': pairingWindowSet,
+  'pairing.approval': pairingApprovalGet,
+  'pairing.approval.set': pairingApprovalSet,
   'push.key': pushKey,
   'push.subscribe': pushSubscribe,
   'push.unsubscribe': pushUnsubscribe,

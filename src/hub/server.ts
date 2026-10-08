@@ -72,6 +72,9 @@ import {
   findByToken,
   pairingWindowOpen,
   applyPairingWindow,
+  pairingApprovalMode,
+  applyPairingApproval,
+  operatorApprovalAllowed,
   touchDevice,
 } from './devices.ts'
 import { hubHandlers } from './handlers.ts'
@@ -494,6 +497,18 @@ export class Hub {
     return result
   }
 
+  /** 新设备进门的方式：只认配对码，还是也允许人工批准（判断逻辑同源在 devices.ts）。 */
+  pairingApproval(): 'code-only' | 'operator' {
+    return pairingApprovalMode(this.store.state().config)
+  }
+
+  /** 改进门方式并落盘。 */
+  async setPairingApproval(mode: 'code-only' | 'operator'): Promise<'code-only' | 'operator'> {
+    const applied = applyPairingApproval(this.store.state().config, mode)
+    await this.store.saveConfig()
+    return applied
+  }
+
   async #handleLocalControl(method: string, params: unknown): Promise<unknown> {
     const status = () => {
       const config = this.store.state().config
@@ -506,9 +521,25 @@ export class Hub {
           : {}),
         pairedCount: Object.keys(this.store.state().paired).length,
         mode: config.pairingMode === 'closed' ? 'closed' : 'open',
+        approval: pairingApprovalMode(config),
       }
     }
     if (method === 'pairing.window') return status()
+    if (method === 'pairing.approval') return status()
+    /* 改进门方式：SSH 后路的一部分 —— 万一有人把自己关在门外（窗口关着且没有已配对设备），
+       这条通道不依赖任何设备身份，只依赖"能在 Hub 本机执行 dse"。 */
+    if (method === 'pairing.approval.set') {
+      if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+        throw new Error('pairing.approval.set params must be an object')
+      }
+      const input = params as { approval?: unknown }
+      if (input.approval !== 'code-only' && input.approval !== 'operator') {
+        throw new Error("pairing.approval.set requires approval 'code-only' or 'operator'")
+      }
+      const applied = await this.setPairingApproval(input.approval)
+      this.log(`device approval mode → ${applied} via local CLI`)
+      return { ...status(), approval: applied }
+    }
     if (method !== 'pairing.window.set') throw new Error(`unsupported local control method: ${method}`)
     if (params === null || typeof params !== 'object' || Array.isArray(params)) {
       throw new Error('pairing.window.set params must be an object')
@@ -963,6 +994,38 @@ export class Hub {
 
     // 未配对 → 走配对流程
     if (paired === undefined) {
+      /* 先判"这台设备能不能自动进门"（回环/白名单 + node + 零 scope）。
+         必须在建记录**之前**判：下面的闸门要在"不会自动放行"时才决定要不要落一条
+         待配对记录，而落记录是有代价的（陌生人能刷你的台账）。 */
+      const autoApprovable = canAutoApprove(this.store, {
+        requestId: '',
+        deviceId: params.device.id,
+        publicKey: params.device.publicKey,
+        role: params.role,
+        scopes: normalizeScopes(params.scopes),
+        platform: params.client.platform,
+        clientId: params.client.id,
+        requestedAtMs: Date.now(),
+        expiresAtMs: Date.now(),
+        remoteIp: conn.remoteIp,
+        fromLoopback: isLoopback(conn.remoteIp),
+      })
+
+      /* 注册窗口关着 + 只认配对码 ⇒ **连记录都不落**。
+         为什么不是"落了记录但拒绝批准"：待配对记录的唯一用途就是被配对码兑换，
+         而窗口关着时设备根本拿不到输码的页面（HTTP 那半边对陌生人 404）。
+         所以这条记录除了让陌生人往你的台账里写字、并给你推一条无法处理的手机通知，
+         没有任何用处。窗口开着才建 —— 那时它才是一条真能被兑换的请求。 */
+      if (!autoApprovable && !this.pairingWindowOpen() && !operatorApprovalAllowed(state.config)) {
+        this.#closeWith(
+          conn,
+          'pairing-closed',
+          'this hub only accepts new devices through a pairing code while the registration window is open; ' +
+            'ask an operator to open it on an already-paired device',
+        )
+        return
+      }
+
       const { request, clampedScopes } = await createPairingRequest(this.store, {
         deviceId: params.device.id,
         publicKey: params.device.publicKey,

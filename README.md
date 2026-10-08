@@ -150,12 +150,27 @@ node bin/dse.mjs pair-code
 ```bash
 node bin/dse.mjs pair list               # 看谁在申请配对
 node bin/dse.mjs pair approve <requestId> --name 我的手机
+node bin/dse.mjs pair rename <deviceId> 客厅的 iPad   # 给已配对设备改个认得出的名字
 ```
 
 > 这条命令在本机直接改状态文件、不走网络，信任锚是"能读写 Hub 状态文件的人本来就已
 > 控制这台机器"——比任何"首次连接自动放行"的魔法更可审计。**批准后不需要搬运任何
 > 令牌**：设备下次连接时自行领取（它能签出挑战就证明了它是它）。令牌弄丢了在 Hub 本机
 > `dse token rotate <deviceId>` 轮换；是本机 CLI 的话新令牌自动写回本地。
+
+**新设备进门的方式（默认只认配对码）**。两件事分开：注册窗口管"门开不开"，进门方式管
+"进门要给什么"。默认组合下，**人工批准这条路是关着的**——新设备必须在注册窗口开着时
+自己输入配对码；窗口关着时未配对设备连握手都会被明确拒绝（`pairing-closed`），
+**连待配对记录都不产生**，陌生人刷不了你的台账、也推不出你处理不了的手机通知。
+
+改成"也允许人工批准"（旧行为）有三种方式：控制台设备页的按钮、`dse pairing approval
+operator`、或直接改 `<状态目录>/hub/hub.json` 的 `pairingApproval` 字段。Hub 本机的
+`dse pair approve` **不受这个开关影响**——它是窗口关着、凭据全丢时的后路。
+
+> 为什么默认收窄：人工批准的判断依据只有 clientId、平台与来源 IP，而这几样在"一堆
+> Mac 浏览器"里根本分不出谁是谁。安全性挂在人的注意力上的门，迟早被一次随手点击打开；
+> 配对码那条路是限时 + 一次性 + 防爆破的。设备页还支持给每台设备改名（`device.rename`）、
+> 列表里带平台 / 来源 IP / 最后在线时间——**认得出谁是谁，才敢吊销该吊销的那一台**。
 
 ### 4. 打开控制台
 
@@ -286,9 +301,11 @@ Hub **认证调用方但不加密传输**。绑到公网网卡意味着设备令
 | `dse hub` | 启动 Hub（启动输出含一次性配对码）；`--trust-proxy` 用于反代部署 |
 | `dse node` | 在终端上启动节点代理 |
 | `dse pair-code` | 重新生成 Hub 配对码（**仅 Hub 本机**，旧码作废）；加 `--hub <ws-url>` 则在终端本机出节点码（10 分钟有效，弹桌面通知） |
-| `dse pair list\|approve\|reject\|remove` | 设备配对兜底路径（**仅 Hub 本机**） |
+| `dse pair list\|approve\|reject\|remove\|rename` | 设备配对兜底路径 + 改名（**仅 Hub 本机**） |
+| `dse pairing status\|open\|close` | 注册窗口：开/关新设备注册（开着时未配对设备才能输入配对码） |
+| `dse pairing approval [code-only\|operator]` | 查/改进门方式；不带值就是查。默认 `code-only` |
 | `dse token rotate\|revoke` | 轮换/吊销设备令牌 |
-| `dse rpc <method> [json]` | 以 operator 身份调一个方法（脚本与排障） |
+| `dse rpc <method> [json] [--hub <ws-url>]` | 以 operator 身份调一个方法（脚本与排障）；`--hub` 可省，缺省读 `$DSE_HOME/hub-url` |
 | `dse identity` | 打印本机设备身份指纹 |
 
 ---
@@ -313,10 +330,11 @@ scripts/          端到端验证与诊断探针
 - **身份**：`deviceId = sha256(SPKI DER)`，即公钥指纹。密钥只有 32 字节。
 - **握手**：服务端下发一次性 nonce → 客户端用私钥签规范 JSON（键顺序固定、scopes 排序）→
   服务端验签 + 校验时钟偏移 + nonce 一次性。
-- **配对**：新设备默认必须人工批准。主路径是 6 位配对码（Hub 启动时打印或终端节点就近
-  生成，只存 sha256、一次性、限时就作废，连错 5 次按 IP 短暂封禁）；兜底是 Hub 本机
-  `dse pair approve`。自动批准只在"回环/白名单 + `role: node` + 未索要任何 scope + 首次"
-  四个条件同时满足时发生。
+- **配对**：新设备默认**只认 6 位配对码**（Hub 启动时打印或终端节点就近生成，只存
+  sha256、一次性、限时就作废，连错 5 次按 IP 短暂封禁）——人工批准默认关闭（见上文
+  `pairingApproval`），要开就在控制台设备页切。窗口关着时未配对设备拿到 `pairing-closed`
+  且不落待配对记录。兜底是 Hub 本机 `dse pair approve`（不受进门方式影响）。自动批准只在
+  "回环/白名单 + `role: node` + 未索要任何 scope + 首次"四个条件同时满足时发生。
 - **令牌**：Hub 只存 sha256。任何签发/轮换的 scope 都**不能超出该设备配对时批准过的集合**
   （`scopesExceeding` 强制）。
 - **权限**：方法 → scope 的映射集中在 `src/protocol/methods.ts` 一处；未知方法一律拒绝；

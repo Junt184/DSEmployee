@@ -13,7 +13,14 @@ import path from 'node:path'
 import { ensureDir, readJsonFile, removeFile, writeJsonFile } from '../util/fsx.ts'
 
 const MAX_LINE_CHARS = 64 * 1024
-const LOCAL_METHODS = new Set(['pairing.window', 'pairing.window.set'])
+const LOCAL_METHODS = new Set([
+  'pairing.window',
+  'pairing.window.set',
+  /* 进门方式（只认配对码 / 也允许人工批准）。放进这条通道的理由与窗口一样：
+     它是"人在 Hub 本机、什么设备凭据都没有"时的救援路径。 */
+  'pairing.approval',
+  'pairing.approval.set',
+])
 const DESCRIPTOR_FILE = 'local-control.json'
 
 type LocalControlRequest = { token: string; method: string; params?: unknown }

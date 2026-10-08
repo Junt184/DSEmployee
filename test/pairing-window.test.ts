@@ -76,7 +76,25 @@ async function session(token: string): Promise<HttpResult> {
   return { status: response.status, body: await response.text(), headers: response.headers }
 }
 
-/** 配一台设备（走 CLI 的本机批准路径，与窗口无关）。 */
+/**
+ * 配对一台设备时的**准备动作**。
+ *
+ * 必须先开窗：待配对记录只在「注册窗口开着」或「进门方式是 operator」时才会产生
+ * （见 devices.ts 的 pairingApproval 注释与 device-approval.test.ts）。准备动作要的是
+ * "账上有条可批准的请求"，所以这里临时开一下窗；**要断言"窗口关着会怎样"的用例
+ * 自己再关掉它** —— 别把这个开关的状态带到断言里去。
+ */
+async function withWindowOpen<T>(run: () => Promise<T>): Promise<T> {
+  const wasOpen = hub.pairingWindowOpen()
+  if (!wasOpen) await hub.setPairingWindow({ openMinutes: 5 })
+  try {
+    return await run()
+  } finally {
+    if (!wasOpen) await hub.setPairingWindow({ close: true })
+  }
+}
+
+
 async function runCli(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--experimental-strip-types', path.join(process.cwd(), 'src/cli.ts'), ...args], {
@@ -102,15 +120,17 @@ async function pairOperator(name: string, scopes: string[]): Promise<HubClient> 
       displayName: name,
       autoReconnect: false,
     })
-  const probe = await make()
-  await assert.rejects(() => probe.connect())
-  probe.close()
+  const deviceId = await withWindowOpen(async () => {
+    const probe = await make()
+    await assert.rejects(() => probe.connect())
+    const id = probe.identity.deviceId
+    probe.close()
+    return id
+  })
   const store = new HubStore(home)
   await store.load()
-  const request = Object.values(store.state().pending).find(
-    (r) => store.state().paired[r.deviceId] === undefined,
-  )
-  assert.ok(request !== undefined)
+  const request = Object.values(store.state().pending).find((r) => r.deviceId === deviceId)
+  assert.ok(request !== undefined, `窗口开着时应当留下 ${name} 的待配对请求`)
   await approvePairing(store, request.requestId, 'test', { approvedScopes: scopes as never })
   const client = await make()
   await client.connect()
@@ -307,8 +327,10 @@ describe('注册窗口：凭据（cookie）与窗口的配合', () => {
 
 describe('注册窗口：不能把自己的设备关在门外', () => {
   it('关着窗口时，已配对的设备照常连、照常调方法', async () => {
-    await hub.setPairingWindow({ close: true })
+    /* 先配对（需要开窗，见 pairOperator），再关窗做断言 —— 顺序不能反：
+       反了就成了"窗口关着还想配一台新设备"，而那条路现在是故意封住的。 */
     const op = await pairOperator('op-window', ['employee.read', 'device.pair'])
+    await hub.setPairingWindow({ close: true })
     const health = (await op.call('health', {})) as { ok?: boolean }
     assert.ok(health !== undefined, '已配对设备必须照常可用（否则这个开关会把自己锁死）')
     const window = (await op.call('pairing.window', {})) as { open?: boolean }
@@ -327,11 +349,15 @@ describe('注册窗口：不能把自己的设备关在门外', () => {
     op.close()
   })
 
-  it('未配对的设备在窗口关着时**仍然可以握手尝试**（拿到的是"要配对"，而不是被拒之门外）', async () => {
-    /* 这条看着矛盾，其实是刻意的：门挡的是 HTTP 页面（拿授权码的入口），
-       WS 握手必须照常——否则"窗口开着"这件事对客户端也没法起作用。 */
+  it('窗口关着时，未配对设备被告知"窗口关着"，而不是拿到一个永远批不了的 requestId', async () => {
+    /* 这条**改过**（原先是"仍然给 pairing-required"）。改的理由：
+       配对码那条路要能走通，设备必须拿得到输码的页面，而窗口关着时 HTTP 那半边对
+       陌生人 404 —— 于是"等配对码"的请求根本没有兑现的途径。留下它只有一个后果：
+       陌生设备往你的台账里写字、给你推一条你无法处理的手机通知。
+       现在窗口关着就直说关着（pairing-closed），**连记录都不落**。 */
     await hub.setPairingWindow({ close: true })
     let code = ''
+    let requestId: unknown = 'unset'
     const probe = await HubClient.create({
       identityFile: path.join(home, 'clients', 'stranger.json'),
       url: hubUrl,
@@ -343,9 +369,49 @@ describe('注册窗口：不能把自己的设备关在门外', () => {
     })
     probe.on('handshakeFailed', (error) => {
       code = error.code
+      requestId = (error.details as { requestId?: string } | undefined)?.requestId
+    })
+    await assert.rejects(() => probe.connect())
+    const deviceId = probe.identity.deviceId
+    probe.close()
+    assert.equal(code, 'pairing-closed', '窗口关着就该说"窗口关着"')
+    assert.equal(requestId, undefined, '不该给一个没法兑现的 requestId')
+    const store = new HubStore(home)
+    await store.load()
+    assert.equal(store.state().pending[deviceId] !== undefined, false)
+    assert.equal(
+      Object.values(store.state().pending).some((r) => r.deviceId === deviceId),
+      false,
+      '窗口关着时不该留下待配对记录',
+    )
+  })
+
+  it('窗口开着时照旧给 pairing-required 与 requestId（配对码要兑换的就是它）', async () => {
+    await hub.setPairingWindow({ openMinutes: 15 })
+    let code = ''
+    let requestId: unknown
+    const probe = await HubClient.create({
+      identityFile: path.join(home, 'clients', 'stranger2.json'),
+      url: hubUrl,
+      role: 'operator',
+      scopes: ['employee.read'] as never,
+      clientId: 'dse-cli',
+      displayName: 'stranger2',
+      autoReconnect: false,
+    })
+    probe.on('handshakeFailed', (error) => {
+      code = error.code
+      requestId = (error.details as { requestId?: string } | undefined)?.requestId
     })
     await assert.rejects(() => probe.connect())
     probe.close()
-    assert.equal(code, 'pairing-required', '未配对设备应当被告知"需要配对"')
+    assert.equal(code, 'pairing-required')
+    assert.equal(typeof requestId, 'string')
+    /* 收尾：清掉这条请求，别影响"取第一条待配对"的相邻用例。 */
+    const { rejectPairing } = await import('../src/hub/devices.ts')
+    const store = new HubStore(home)
+    await store.load()
+    await rejectPairing(store, requestId as string)
+    await hub.setPairingWindow({ close: true })
   })
 })

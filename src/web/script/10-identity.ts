@@ -48,7 +48,9 @@ var state = {
   selectedApprovalId: null,
   /* 待发附件：已上传到员工工作区的文件，随下一条指令一起发出 */
   attachments: [],
-  devices: { pending: [], paired: [] },
+  /* approval：新设备的进门方式（'code-only' 默认 / 'operator'）。空串 = 还不知道，
+     界面按"只认配对码"渲染 —— 那个方向更保守，猜错也不会多给一个不该有的批准按钮。 */
+  devices: { pending: [], paired: [], approval: '' },
   pending: new Map(),
   seq: 0,
   retryTimer: null,
