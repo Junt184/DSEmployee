@@ -1077,6 +1077,14 @@ function syncAuthGate() {
   if (noCrypto !== null) noCrypto.classList.toggle('hidden', state.identity !== null || state.tokenMode !== true)
   var pairArea = $('authPairArea')
   if (pairArea !== null) pairArea.classList.toggle('hidden', state.identity === null && state.tokenMode === true)
+  /* 只认配对码时，"去另一台已授权设备上批准"这条路服务端会拒（见 devices.ts 的
+     pairingApproval）。画一条点了必然报错的路，比不画更糟 —— 用户会以为是界面坏了。
+     所以换成一句说明，并指向真正可行的那一步（开窗 + 输码）。 */
+  var codeOnly = BOOT.pairingApproval !== 'operator'
+  var approvePath = $('authApprovePath')
+  if (approvePath !== null) approvePath.classList.toggle('hidden', codeOnly)
+  var codeOnlyNote = $('authCodeOnlyNote')
+  if (codeOnlyNote !== null) codeOnlyNote.classList.toggle('hidden', !codeOnly)
 }
 
 function setAuthError(message) {

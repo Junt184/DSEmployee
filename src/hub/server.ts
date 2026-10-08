@@ -824,6 +824,10 @@ export class Hub {
         hubName: this.store.state().config.name,
         // 带内容指纹的地址；renderControlUi 里也会兜底补上，双保险
         scriptUrl: controlUiScriptUrl(),
+        /* 授权页要给未配对设备看，而它们**没有任何 scope** —— 读不到 pairing.approval。
+           所以把进门方式随页面一起交付：只认配对码时页面不能继续宣传"去另一台设备批准"
+           （那条路服务端会拒，画出来就是骗人点一次）。 */
+        pairingApproval: this.pairingApproval(),
       })
       res.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',

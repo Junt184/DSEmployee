@@ -20,11 +20,21 @@ export interface ControlUiMarkupParts {
   uiVersion: string
   /** `<script>` 标签（外链带版本号）/ 或内联脚本 */
   scriptTag: string
+  /**
+   * 新设备的进门方式（`store.ts` 的 `pairingApproval`，缺省 `code-only`）。
+   *
+   * 为什么页面上要这份：授权页给未配对设备看，而**未配对设备读不到任何需要权限的
+   * 接口**（`pairing.approval` 要 `device.pair`）。所以只能由服务端在交付页面时就写进
+   * boot 里 —— 否则页面会继续宣传一条服务端已经拒绝的路（"去另一台设备批准"）。
+   */
+  pairingApproval?: 'code-only' | 'operator'
 }
 
 export function renderControlBody(parts: ControlUiMarkupParts): string {
   return `<body>
-<div id="dse-boot" class="hidden" data-hub-id="${parts.bootHubId}" data-hub-name="${parts.bootHubName}"></div>
+<!-- 进门方式也由服务端注入：授权页要据此决定"人工批准"那条路能不能走
+     （只认配对码时它是**被服务端拒绝**的，画出来就是骗人点）。 -->
+<div id="dse-boot" class="hidden" data-hub-id="${parts.bootHubId}" data-hub-name="${parts.bootHubName}" data-pairing-approval="${parts.pairingApproval ?? ''}"></div>
 
 <div id="banner" class="banner hidden"></div>
 
@@ -50,10 +60,17 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
       </div>
       <div class="auth-error" id="authError"></div>
 
-      <div class="auth-step">方式二：在另一台已授权设备上批准</div>
-      <div class="muted">
-        本设备的配对请求 ID：<code id="authRequestId">…</code><br>
-        在已授权控制台的「设备」卡片里批准它即可 —— 本页每 3 秒自动重试，批准后自动进入。
+      <div id="authApprovePath">
+        <div class="auth-step">方式二：在另一台已授权设备上批准</div>
+        <div class="muted">
+          本设备的配对请求 ID：<code id="authRequestId">…</code><br>
+          在已授权控制台的「设备」卡片里批准它即可 —— 本页每 3 秒自动重试，批准后自动进入。
+        </div>
+      </div>
+      <!-- 只认配对码时用它换掉方式二：那条路服务端会拒，留着就是让人白点一次。 -->
+      <div id="authCodeOnlyNote" class="muted hidden">
+        这台 Hub 现在是「只认配对码」：人工批准已关闭。请让已授权的设备在控制台
+        「设备」页打开「允许新设备注册」，然后用上面的配对码授权。
       </div>
       <div class="row">
         <button id="btnRepair" class="ghost">清除本地令牌并重新配对</button>

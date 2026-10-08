@@ -29,10 +29,14 @@ export const CHUNK_00_CORE = String.raw`
 
 var BOOT = (function () {
   var node = document.getElementById('dse-boot')
-  if (node === null) return { hubId: '', hubName: 'Hub' }
+  if (node === null) return { hubId: '', hubName: 'Hub', pairingApproval: 'code-only' }
   return {
     hubId: String(node.getAttribute('data-hub-id') || ''),
-    hubName: String(node.getAttribute('data-hub-name') || 'Hub')
+    hubName: String(node.getAttribute('data-hub-name') || 'Hub'),
+    /* 进门方式由服务端注入（未配对设备读不到任何接口，只能靠页面带过来）。
+       缺省按**只认配对码**处理：那个方向更保守 —— 猜错只是少画一条其实能走的路，
+       反过来则是画出一条服务端会拒的路。 */
+    pairingApproval: node.getAttribute('data-pairing-approval') === 'operator' ? 'operator' : 'code-only'
   }
 })()
 

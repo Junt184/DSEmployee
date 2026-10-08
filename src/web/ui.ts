@@ -45,6 +45,11 @@ export interface ControlUiOptions {
    * 内联分支只保留给离线/单文件交付场景，那时需要自行放宽 CSP。
    */
   scriptUrl?: string
+  /**
+   * 新设备的进门方式（见 `markup.ts` 的 `ControlUiMarkupParts.pairingApproval`）。
+   * 缺省 = 只认配对码，授权页会把"去另一台设备批准"那条路收起来。
+   */
+  pairingApproval?: 'code-only' | 'operator'
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -251,7 +256,15 @@ try {
 </script>
 <style>${CONTROL_UI_CSS}</style>
 </head>
-${renderControlBody({ bootHubId: bootHubId, bootHubName: bootHubName, uiVersion: uiVersion, scriptTag: renderScriptTag(options) })}
+${renderControlBody({
+    bootHubId: bootHubId,
+    bootHubName: bootHubName,
+    /* 只有"也允许人工批准"才写进去；缺省（只认配对码）时留空，
+       脚本按"服务端没这么说就按只认配对码处理"的方向兜底。 */
+    ...(options.pairingApproval === 'operator' ? { pairingApproval: 'operator' as const } : {}),
+    uiVersion: uiVersion,
+    scriptTag: renderScriptTag(options),
+  })}
 </html>
 `
 }
