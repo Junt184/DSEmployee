@@ -253,18 +253,24 @@ function loadEmployeeAside() {
     return Promise.resolve()
   }
   var employeeId = String(employee.id)
-  state.aside = {
+  var previous = state.asideCache.get(employeeId)
+  var snapshot = {
     employeeId: employeeId,
-    skills: null,
-    files: null,
+    refreshing: previous !== undefined,
+    skills: previous ? previous.skills : null,
+    files: previous ? previous.files : null,
     skillsError: '',
     filesError: '',
-    panels: [],
-    skillTable: null,
+    panels: previous ? previous.panels : [],
+    skillTable: previous ? previous.skillTable : null,
     skillTableError: '',
-    reports: null,
+    reports: previous ? previous.reports : null,
     reportsError: '',
   }
+  state.aside = snapshot
+  state.asideCache.delete(employeeId)
+  state.asideCache.set(employeeId, snapshot)
+  while (state.asideCache.size > 16) state.asideCache.delete(state.asideCache.keys().next().value)
   renderEmployeeAside()
   if (state.phase !== 'ready') return Promise.resolve()
 
@@ -272,22 +278,22 @@ function loadEmployeeAside() {
   jobs.push(
     rpc('employee.skills.list', { employeeId: employeeId })
       .then(function (payload) {
-        if (state.aside === null || state.aside.employeeId !== employeeId) return
+        if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
         state.aside.skills = parseSkillList(payload)
       })
       .catch(function (error) {
-        if (state.aside === null || state.aside.employeeId !== employeeId) return
+        if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
         state.aside.skillsError = describeError(error)
       }),
   )
   jobs.push(
     rpc('employee.files.list', { employeeId: employeeId, path: '.' })
       .then(function (payload) {
-        if (state.aside === null || state.aside.employeeId !== employeeId) return
+        if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
         state.aside.files = pickArray(payload, ['entries', 'items', 'list'])
       })
       .catch(function (error) {
-        if (state.aside === null || state.aside.employeeId !== employeeId) return
+        if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
         state.aside.filesError = describeError(error)
       }),
   )
@@ -295,7 +301,7 @@ function loadEmployeeAside() {
      而 loadPositions 自己会缓存，这里再调一次只是等它。 */
   var positionsReady = positionList().length > 0 ? Promise.resolve() : loadPositions()
   return positionsReady.then(function () {
-    if (state.aside === null || state.aside.employeeId !== employeeId) return
+    if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
     var panels = positionPanelsOf(employee)
     state.aside.panels = panels
     /* 先把面板骨架画出来（里面是"正在载入"），再拉它们的数据 */
@@ -304,11 +310,11 @@ function loadEmployeeAside() {
       jobs.push(
         loadReportArchive(employeeId).then(
           function (entries) {
-            if (state.aside === null || state.aside.employeeId !== employeeId) return
+            if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
             state.aside.reports = entries
           },
           function (error) {
-            if (state.aside === null || state.aside.employeeId !== employeeId) return
+            if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
             state.aside.reportsError = describeError(error)
           },
         ),
@@ -317,12 +323,14 @@ function loadEmployeeAside() {
     if (panels.some(function (id) { return SKILL_PANEL_IDS.indexOf(id) >= 0 })) {
       jobs.push(
         loadSkillTable(employeeId).then(function (result) {
-          if (state.aside === null || state.aside.employeeId !== employeeId) return
+          if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
           state.aside.skillTable = result
         }),
       )
     }
     return Promise.all(jobs).then(function () {
+      if (state.aside !== snapshot || state.selectedEmployeeId !== employeeId) return
+      snapshot.refreshing = false
       renderEmployeeAside()
     })
   })
@@ -350,6 +358,9 @@ function renderEmployeeAside() {
   var title = el('div', 'aside-title', String(employee.name || '（未命名）'))
   title.appendChild(el('span', 'badge ' + badge.kind, badge.text))
   head.appendChild(title)
+  if (state.aside !== null && state.aside.employeeId === employeeId && state.aside.refreshing) {
+    head.appendChild(el('div', 'aside-note', '上次读取的信息 · 正在更新…'))
+  }
   var role = typeof employee.role === 'string' ? employee.role : ''
   if (role !== '') head.appendChild(el('div', 'aside-role', role))
   var positionLabel = positionName(employee.position)

@@ -55,63 +55,99 @@ function createEmployee() {
     })
 }
 
+/* 切员工即切工作台：先恢复可读内容，再异步同步，不用网络响应串起页面切换。 */
 function selectEmployee(employeeId, options) {
+  var staying = state.selectedEmployeeId === employeeId
+  if (staying && state.view === 'chat' && state.selectedSessionId !== null &&
+      !(options && (options.sessionId || options.newSession))) return Promise.resolve()
+  rememberChatView()
+  var input = $('promptInput')
+  if (!staying && state.selectedEmployeeId !== null && input !== null) {
+    state.employeeDrafts.set(state.selectedEmployeeId, String(input.value || ''))
+  }
   var selectionVersion = ++state.employeeSelectionVersion
-  if (state.selectedEmployeeId !== employeeId && state.attachments.length > 0) {
+  state.sessionOpenVersion += 1
+  if (!staying && state.attachments.length > 0) {
     state.attachments = []
     renderAttachStrip()
   }
   state.selectedEmployeeId = employeeId
   writeLocal(LS.lastEmployee, employeeId)
   state.selectedSessionId = null
+  state.chatHistory = null
   state.historySync = null
   state.subscribed = null
-  state.sessions = []
   var cached = employeeSessionState(employeeId)
-  if (cached.sessions !== null) state.sessions = cached.sessions
+  state.sessions = cached.sessions || []
   turnRunning = false
-  /* 换员工：丢弃未结算的沉淀（回合仍在旧会话里跑，但不在这个页面结算了） */
   distilling = false
   distillSnapshot = null
-  /* 点进对话框 = 已读：未读红点清零（先清再渲染，红点随之消失） */
+  if (!staying && input !== null) input.value = state.employeeDrafts.get(employeeId) || ''
   clearUnread(employeeId)
-  clear($('sessionList'))
   bindChatUi()
-  renderEmployees()
-  renderSessions()
-  clearMessages('（正在载入最近会话…）')
   closeSessionNavDrawer()
-  /* 点了工位就是「去找这位同事」：切到聊天视图 */
+  /* setView 是外壳的唯一切换入口；不再额外重复 applyPositionShell 与整页渲染。 */
   setView('chat')
-  syncControls()
-  updateChatHeader()
+  renderSessions()
+  setRunning(false)
   updateEffectivePreset()
+  autoGrowPrompt()
+  syncControls()
   updateSendButton()
   updateCompactButton()
   updateDistillButton()
-  /* 右栏（宽屏）跟着当前员工走；窄屏它不可见，拉取也只是两次只读 RPC */
-  loadEmployeeAside()
-  /* 岗位声明的页面外壳（如秘书页）：必须在这里调 —— 漏掉就是"岗位配了秘书页、页面还是老样子"，
-     而且不报错（design/秘书页-设计稿.md §3） */
-  applyPositionShell(employeeById(employeeId))
-  renderSessions()
+  var syncStatus = $('chatSyncStatus')
+  if (syncStatus !== null) syncStatus.textContent = ''
+
+  function stillEntering() {
+    return state.selectedEmployeeId === employeeId && state.employeeSelectionVersion === selectionVersion
+  }
+  var requested = options && typeof options.sessionId === 'string' ? options.sessionId : ''
+  var remembered = recallSession(employeeId)
+  var rememberedEntry = state.sessions.find(function (session) { return sessionIdOf(session) === remembered })
+  /* 离线且没有列表时显式接回本机记忆；在线的已知空列表不能复活已删除的会话。
+     尚未读过列表时可先打开记忆，随后由本次列表响应确认它是否仍有效。 */
+  var offlineSession = adoptOfflineSession(state.sessions, selectedNodeOnline(), remembered)
+  var unverifiedSession = cached.sessions === null ? remembered : ''
+  var initial = requested || (rememberedEntry !== undefined && rememberedEntry.archived !== true ? remembered : latestSessionId()) || offlineSession || unverifiedSession
+  var opening = Promise.resolve()
+  if (options && options.newSession === true) opening = createSession()
+  else if (initial !== '') opening = openSession(initial)
+  else clearMessages('正在载入会话…')
+  var initialOpenVersion = state.sessionOpenVersion
+  var initialLiveVersion = state.sessionLiveVersion || 0
+  /* 非当前屏幕的办公区不在切换的关键路径重建。 */
+  animateEmployeeWorkspace()
+  void loadEmployeeAside()
   loadSessionTree()
-  /* 上次阅读的会话优先；失败与确实没有会话必须分开处理。 */
-  var entering = employeeId
-  return loadSessions().then(function () {
-    if (state.selectedEmployeeId !== entering || state.employeeSelectionVersion !== selectionVersion) return
-    if (state.selectedSessionId !== null) return /* 用户已经手选了一个会话 */
-    if (options !== undefined && options.sessionId) return openSession(options.sessionId)
-    if (options !== undefined && options.newSession === true) return createSession()
-    var remembered = recallSession(entering)
-    var entry = employeeSessionState(entering)
-    if (remembered !== '' && (entry.error !== '' || state.sessions.some(function (session) {
-      return sessionIdOf(session) === remembered && session.archived !== true
-    }))) return openSession(remembered)
-    var latest = latestSessionId()
-    if (latest !== '') {
-      return openSession(latest)
+  var listing = loadSessions().then(function () {
+    if (!stillEntering()) return
+    /* 缓存和历史已经可读；列表刷新只更新标题与运行状态，不再把会话重新打开一遍。 */
+    var entry = employeeSessionState(employeeId)
+    if (state.selectedSessionId !== null) {
+      var selected = state.sessions.find(function (session) { return sessionIdOf(session) === state.selectedSessionId })
+      var validatingDefault = requested === '' && !(options && options.newSession) && state.sessionOpenVersion === initialOpenVersion
+      var unavailable = selected === undefined ? state.sessions.length > 0 || selectedNodeOnline() : selected.archived === true
+      if (validatingDefault && entry.error === '' && unavailable) {
+        /* 列表确认缓存会话已删除/归档，才换到有效会话；用户手选的会话不受后台刷新影响。 */
+        state.selectedSessionId = null
+        state.sessionOpenVersion += 1
+        state.historySync = null
+        state.chatHistory = null
+        if (syncStatus !== null) syncStatus.textContent = ''
+        setRunning(false)
+        renderSessions()
+        syncControls()
+        updateSendButton()
+      } else {
+        if (selected !== undefined && (state.sessionLiveVersion || 0) === initialLiveVersion) setRunning(selected.running === true)
+        updateChatHeader()
+        return
+      }
     }
+    if (options && options.newSession === true) return
+    var latest = latestSessionId()
+    if (latest !== '') return openSession(latest)
     if (entry.error !== '') {
       clearMessages('暂时无法读取会话列表。请点击会话栏中的「重试」；已有会话不会被替换。')
       return
@@ -120,22 +156,17 @@ function selectEmployee(employeeId, options) {
       clearMessages('会话已全部归档。展开会话栏可查看或恢复历史，也可点击「新会话」。')
       return
     }
-    /* 节点离线、列表又拉不到：沿用本地记下的那个会话，让"先排队"这条路留着。
-       直接建会话在离线时必然失败，那时发送键会一直是灰的 —— 用户会以为界面坏了。 */
-    var adopted = adoptOfflineSession(state.sessions, selectedNodeOnline(), recallSession(entering))
-    if (adopted !== '') {
-      state.selectedSessionId = adopted
-      state.subscribed = null
-      renderSessions()
-      syncControls()
-      updateSendButton()
-      updateCompactButton()
-      updateDistillButton()
-      clearMessages('（暂时连不上该员工的节点：能发，但会先排进队列，等节点上线后送出去）')
-      return
-    }
     return createSession({ silent: true })
   })
+  return Promise.all([listing, opening])
+}
+
+function animateEmployeeWorkspace() {
+  var workspace = $('viewChat')
+  if (workspace === null || typeof workspace.animate !== 'function') return
+  if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  if (state.workspaceAnimation) state.workspaceAnimation.cancel()
+  state.workspaceAnimation = workspace.animate([{ opacity: 0.92 }, { opacity: 1 }], { duration: 120, easing: 'ease-out' })
 }
 
 /** 最近一次会话：按 updatedAt/updatedAtMs 降序取第一个（接口不保证有序，自己排）。 */
@@ -355,22 +386,58 @@ function reloadEmployeeSessions(employeeId) {
   return loadSessions(employeeId)
 }
 
+function sessionTreeSignature() {
+  return JSON.stringify([state.phase, state.scopes, Array.from(state.expandedArchives), Array.from(state.sessionArchivePending.keys()),
+    officeSections().map(function (section) {
+      return section.members.map(function (employee) {
+        var id = String(employee.id || '')
+        var expanded = state.expandedSessionEmployees.has(id)
+        var entry = expanded ? employeeSessionState(id) : null
+        var sessions = entry === null ? [] : id === state.selectedEmployeeId ? state.sessions : entry.sessions
+        return [id, employee.name, positionName(employee.position), employee.nodeOnline, expanded,
+          entry === null ? '' : entry.error, entry === null || entry.sessions !== null,
+          (sessions || []).map(function (session) { return [sessionIdOf(session), sessionTitleOf(session), session.running, session.archived, session.updatedAt, session.updatedAtMs] })]
+      })
+    })])
+}
+
+function syncSessionSelection(list) {
+  Array.from(list.querySelectorAll('.cs-employee')).forEach(function (group) {
+    var current = group.getAttribute('data-employee-id') === state.selectedEmployeeId
+    group.classList.toggle('selected', current)
+    var choose = group.querySelector('.cs-employee-select')
+    if (choose !== null) choose.setAttribute('aria-pressed', current ? 'true' : 'false')
+  })
+  Array.from(list.querySelectorAll('[data-session-id]')).forEach(function (row) {
+    var current = row.getAttribute('data-employee-id') === state.selectedEmployeeId && row.getAttribute('data-session-id') === state.selectedSessionId
+    row.classList.toggle('active', current)
+    if (current) row.setAttribute('aria-current', 'true')
+    else row.removeAttribute('aria-current')
+  })
+}
+
 function renderSessions() {
   updateEmployeeNavigation()
   var list = $('sessionList')
   if (list === null) return
   /* 轮询刷新时保留正在输入的会话名称。 */
   if (list.querySelector('.cs-rename') !== null) return
+  var signature = sessionTreeSignature()
+  if (list.getAttribute('data-tree-signature') === signature) {
+    syncSessionSelection(list)
+    return
+  }
   var scrollTop = list.scrollTop
   var active = document.activeElement
   var row = active !== null && list.contains(active) ? active.closest('[data-employee-id]') : null
   var employeeId = row === null ? '' : row.getAttribute('data-employee-id')
   var sessionId = row === null ? null : row.getAttribute('data-session-id')
-  var control = active === null ? '' : ['cs-employee-toggle', 'cs-employee-select', 'cs-archive', 'cs-edit'].find(function (name) {
+  var control = active === null ? '' : ['cs-employee-toggle', 'cs-employee-select', 'cs-archive', 'cs-edit', 'cs-archives-toggle'].find(function (name) {
     return active.classList.contains(name)
   }) || ''
   clear(list)
   renderSessionTree(list)
+  list.setAttribute('data-tree-signature', signature)
   list.scrollTop = scrollTop
   /* 实时刷新列表时保留键盘落点，避免展开后焦点突然掉回页面。 */
   if (row !== null) {
@@ -512,7 +579,9 @@ function renderSessionTree(list) {
       label.appendChild(position)
       choose.appendChild(label)
       choose.title = String(employee.name || shortId(id)) + '（' + positionLabel + '）'
-      if (id === state.selectedEmployeeId) choose.appendChild(el('span', 'cs-current', '当前'))
+      var marker = el('span', 'cs-current', '当前')
+      marker.setAttribute('aria-hidden', 'true')
+      choose.appendChild(marker)
       if (employee.nodeOnline === false) choose.appendChild(el('span', 'badge off', '离线'))
       choose.setAttribute('aria-pressed', id === state.selectedEmployeeId ? 'true' : 'false')
       choose.onclick = function () {
@@ -547,6 +616,9 @@ function renderSessionTree(list) {
 /* 行内改名：点击铅笔后整行换成编辑器（输入框预填当前名 + 保存键）。
    Enter/保存提交，Esc/失焦取消；提交在途时禁用控件防重复。 */
 function startSessionRename(item, session, id, employeeId) {
+  /* 编辑器临时替换过行内容，结束编辑时必须重建，不能只更新选中态。 */
+  var list = $('sessionList')
+  if (list !== null) list.removeAttribute('data-tree-signature')
   var editor = el('div', 'cs-rename')
   var input = el('input', '')
   input.type = 'text'

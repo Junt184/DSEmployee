@@ -430,12 +430,13 @@ function stageTurn(running) {
   stageTouch()
   var employeeId = secretaryState.employeeId
   if (employeeId === '') return
+  var snapshot = secretaryState
   /* 「读过没有」在重读之前取：这一页的第一次读不算"她刚写了新结论"（否则一进来就抬头） */
   var wasLoaded = secretaryState.loaded === true
   var before = secretaryState.stamp + '\u0000' + String(secretaryState.text === null ? '' : secretaryState.text)
   void loadConclusion(employeeId).then(function () {
     if (wasLoaded !== true) return
-    if (secretaryState.employeeId !== employeeId) return
+    if (secretaryState !== snapshot || secretaryState.employeeId !== employeeId) return
     var after = secretaryState.stamp + '\u0000' + String(secretaryState.text === null ? '' : secretaryState.text)
     if (after === before) return
     if (secretaryState.text === null || String(secretaryState.text).trim() === '') return
@@ -447,9 +448,14 @@ function stageTurn(running) {
 
 function loadConclusion(employeeId) {
   if (employeeId === '') return Promise.resolve()
+  var snapshot = secretaryState
+  var revision = snapshot.readRevision = (snapshot.readRevision || 0) + 1
+  function stillReading() {
+    return secretaryState === snapshot && snapshot.employeeId === employeeId && snapshot.readRevision === revision
+  }
   return rpc('employee.files.get', { employeeId: employeeId, path: CONCLUSION_PATH }).then(
     function (payload) {
-      if (secretaryState.employeeId !== employeeId) return
+      if (!stillReading()) return
       var content = payload !== null && typeof payload === 'object' ? String(payload.content === undefined ? '' : payload.content) : ''
       var parsed = parseConclusion(content)
       secretaryState.text = parsed.text
@@ -461,7 +467,7 @@ function loadConclusion(employeeId) {
       updateBoardDot()
     },
     function (error) {
-      if (secretaryState.employeeId !== employeeId) return
+      if (!stillReading()) return
       /* 文件不存在 ≠ 读失败：前者是"她还没写过"（正常空态），后者是"读不到"（要说原因）。
          **不能只看 error.code**：实测（生产、Windows 节点）文件不存在时回来的 code 是别的值，
          ENOENT 只出现在 message 里 —— 于是"她还没写过"被显示成一长串 ENOENT 报错。

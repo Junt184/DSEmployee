@@ -666,15 +666,28 @@ function bindEvents() {
  *   3. 打开时**默认带 15 分钟倒计时**（忘了关是这类开关最常见的失败方式）；
  *      确实要长时间加设备，用「一直开着」那个按钮。
  */
-function renderPairingWindow(state) {
+/**
+ * 画注册窗口那张卡片。
+ *
+ * ⚠️ 参数叫 payload 不叫 state：上一版它就叫 state，于是**遮住了全局的 state**
+ * （这种变量名撞车在 JS 里完全不报错，只是后面想读全局状态时读到的是入参）。
+ * 现在这张卡片要顺带回写 state.devices.approval，撞名会让它写到一个临时对象上、
+ * 写完就丢 —— 表现出来就是"切了进门方式，列表里的批准按钮照旧"。
+ */
+function renderPairingWindow(payload) {
   var box = $('pairingWindowBox')
   if (box === null) return
   clear(box)
-  var known = state !== null && typeof state === 'object'
-  var open = known && state.open === true
-  var remaining = known ? Number(state.remainingSec || 0) : 0
-  var pairedCount = known ? Number(state.pairedCount || 0) : -1
+  var known = payload !== null && typeof payload === 'object'
+  var open = known && payload.open === true
+  var remaining = known ? Number(payload.remainingSec || 0) : 0
+  var pairedCount = known ? Number(payload.pairedCount || 0) : -1
   var forever = open && remaining <= 0
+  /* 进门方式以这次返回值里的为准（窗口查询也带它），顺带回写 state ——
+     否则卡片上写的与列表里的按钮可能来自不同时刻的两份数据。 */
+  if (known && (payload.approval === 'operator' || payload.approval === 'code-only')) {
+    state.devices.approval = payload.approval
+  }
 
   if (open) {
     var line = forever

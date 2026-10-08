@@ -228,12 +228,21 @@ function makeHarness(
     canResolve: options.canResolve !== false,
     sessions: options.sessions ?? [],
     aside: null,
+    /* 四宫格面板的快照缓存（工作台那批新加的）：leaveQuadShell 会清它。
+       假 state 的契约是"给足以让被测函数跑完的那部分"，新字段要跟着补。 */
+    quadCache: new Map<string, unknown>(),
   }
 
   const scope: Record<string, unknown> = {
     document: {
       createElement: (tag: string): FakeEl => makeEl(tag),
+      /* 工作台切换的过渡动画会用 rAF；假 DOM 里给个同步版就够
+         （与 ui-secretary 的 harness 同一处理）——否则动画那一段会抛 ReferenceError，
+         而它是在测试结束后才触发的异步活动，报出来的错完全指不到这里。 */
+      addEventListener: (): void => {},
     },
+    requestAnimationFrame: (fn: () => void): number => { fn(); return 0 },
+    cancelAnimationFrame: (): void => {},
     el: (tag: string, className?: string, text?: unknown): FakeEl => {
       const node = makeEl(tag)
       if (className) node.className = className
@@ -352,8 +361,9 @@ function makeHarness(
     extractFunction('renderQuadCells'),
     extractFunction('renderQuadPlan'),
     extractFunction('renderQuadTrCell'),
-    extractFunction('sessionPanelExpanded'),
-    extractFunction('currentSessionTitle'),
+    /* 这两个函数（右上「会话折叠栏」的展开态与当前标题）随导航重构删掉了：
+       员工与会话搬到了外层公共导航，四宫格右上格不再有它的一份。
+       harness 是从交付脚本里**按名字抠函数**的，名字消失会让整份文件起不来。 */
     extractFunction('quadFileNeeds'),
     extractFunction('loadQuadFiles'),
     extractFunction('reloadQuadFiles'),
@@ -411,7 +421,7 @@ describe('四宫格：结构契约（CSS 与标记）', () => {
     )
   })
 
-  it('四宫格是 5 行网格，区域与轨道数一致（少写一行就会被塞进隐含行，把格子顶走）', () => {
+  it('四宫格是 4 行网格，区域与轨道数一致（少写一行就会被塞进隐含行，把格子顶走）', () => {
     const css = styleSheet()
     const start = css.indexOf('#viewChat.layout-quad {')
     assert.ok(start > 0, '找不到 #viewChat.layout-quad 的规则')
@@ -421,7 +431,9 @@ describe('四宫格：结构契约（CSS 与标记）', () => {
     assert.deepEqual(
       /* 多条空格只是对齐用的（"tl  tr"），比较前归一化 */
       rows.map((row) => row.replace(/"/g, '').trim().replace(/\s+/g, ' ')),
-      ['top top', 'tl tr', 'bl ss', 'bl msgs', 'bl composer'],
+      /* 会话带（`ss`）随导航重构去掉：员工与会话在外层公共导航里，
+         四宫格的工作区不再为它留一行。 */
+      ['top top', 'tl tr', 'bl msgs', 'bl composer'],
       '四格与对话格的网格区域必须是这一份（左上/左下/右上/右下 + 会话带）',
     )
     const tracks = /grid-template-rows:\s*([^;]+);/.exec(block)?.[1] ?? ''
@@ -602,8 +614,11 @@ describe('四宫格：外壳行为', () => {
     const text = allText(tr)
     assert.ok(findButtons(tr).some((button) => button.textContent === '通过'), '右上格的审批要带行内裁决入口（这一格就是"人动手的地方"）：' + text)
     assert.ok(text.includes('未决审批'), '审批块要在右上格：' + text)
-    assert.ok(text.includes('会话'), '右上格要有会话折叠栏')
-    assert.ok(text.includes('当前：端口爆破复盘'), '会话折叠时要交代当前在哪个会话：' + text)
+    /* 「会话折叠栏」不再住在这一格里：员工与会话搬到了外层公共导航
+       （`#viewChatShell` 的 rail + `#sessionPanel`），四个岗位共用一份。
+       所以这里不再断"右上格有会话"，改为断**它不再重复一份**（否则又会出现
+       "两处各自维护展开状态"的老问题）。 */
+    assert.equal(text.includes('当前：'), false, '右上格不该再重复一份会话折叠栏：' + text)
     assert.ok(text.includes('专属技能') && text.includes('1 个有问题'), '专属技能的"有问题"必须留在标题上（折的是列表，不是问题）：' + text)
   })
 
@@ -843,8 +858,8 @@ describe('四宫格：审批与技能与右栏共用同一份取数', () => {
     /* 会话面板在 ≥1200px 那条"左栏常驻"规则下会掉进隐含行（quad 踩过一模一样的坑），
        所以这一排法必须显式给它一个格子 */
     assert.ok(
-      /#viewChat\.layout-quad-chat > #sessionPanel \{[^}]*grid-area:\s*msgs/.test(css),
-      '会话列表要显式放进 msgs 格（否则被 ≥1200px 那条规则拽进隐含行）',
+      /#viewChat\.layout-quad-chat > #sessionPanel/.test(css) === false,
+      '会话列表已经不住在工作区里了 —— 工作区里若还有它的网格规则，说明又分叉出一份',
     )
   })
 
@@ -884,7 +899,8 @@ describe('四宫格：审批与技能与右栏共用同一份取数', () => {
       !allText(quiet.nodes['quadTr']!).includes('未决审批'),
       '没有未决项时不该画那一段（用户 2026-09-24 的判词：那些静态数据一辈子也不变）',
     )
-    assert.ok(allText(quiet.nodes['quadTr']!).includes('会话'), '但会话与技能照常在')
+    /* 「会话」不再属于这一格（搬去外层公共导航），所以这里只断技能照常在。 */
+    assert.ok(allText(quiet.nodes['quadTr']!).includes('专属技能'), '但技能照常在')
 
     const busy = makeHarness({ cells: { tl: [], bl: [] }, approvals: [pendingInvoke] })
     busy.api.renderQuadCells()
@@ -893,7 +909,7 @@ describe('四宫格：审批与技能与右栏共用同一份取数', () => {
     assert.deepEqual(findButtons(busy.nodes['quadTr']!).map((button) => button.textContent), ['拒绝', '通过'], '出来时要带行内裁决')
   })
 
-  it('右上格的顺序：岗位面板 → 审批 → 会话 → 技能（面板在最上：它是唯一每轮都变的东西）', () => {
+  it('右上格的顺序：岗位面板 → 审批 → 技能（面板在最上：它是唯一每轮都变的东西）', () => {
     const harness = makeHarness({
       cells: { tl: [], bl: [], tr: ['monitor-watch'] },
       approvals: [pendingInvoke],
@@ -907,7 +923,7 @@ describe('四宫格：审批与技能与右栏共用同一份取数', () => {
         .replace(/\s*\d+\s*(待处理)?$/, '')
         .trim(),
     )
-    assert.deepEqual(titles, ['巡检轮次', '未决审批', '会话', '专属技能'], '四个块的出现顺序就是这一格的信息层级')
+    assert.deepEqual(titles, ['巡检轮次', '未决审批', '专属技能'], '三个块的出现顺序就是这一格的信息层级')
   })
 
   it('技能快照到位后，右上格要跟着重画（否则那一格永远停在「正在载入…」）', () => {

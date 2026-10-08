@@ -60,6 +60,13 @@ var state = {
   /* 整个左栏沿用设备偏好；员工内部的会话分组另行控制，默认收起。 */
   panelVisible: true,
   sessionNavOpen: false,
+  /* 工作台切换只保留本页内存中的阅读位置、消息快照与文字草稿。 */
+  chatViews: new Map(),
+  employeeDrafts: new Map(),
+  asideCache: new Map(),
+  quadCache: new Map(),
+  sessionLiveVersion: 0,
+  workspaceAnimation: null,
   /* 岗位目录（Hub 侧共享数据）：控制台只做缓存，用于下拉候选与工位徽章 */
   positions: [],
   expectClose: false,

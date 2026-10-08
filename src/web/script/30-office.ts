@@ -705,7 +705,7 @@ function syncPanelToggle() {
   if (workspace !== null) workspace.inert = drawer
   var rail = $('employeeNavRail')
   if (rail !== null) rail.inert = drawer
-  ;['btnChatSessions', 'btnNavCurrent', 'btnPanel'].forEach(function (id) {
+  ;['btnChatSessions', 'btnPanel'].forEach(function (id) {
     var button = $(id)
     if (button !== null) button.setAttribute('aria-expanded', visible ? 'true' : 'false')
   })
@@ -732,33 +732,43 @@ function closeSessionNavDrawer() {
 }
 
 function updateEmployeeNavigation() {
-  var employee = state.selectedEmployeeId === null ? null : employeeById(state.selectedEmployeeId)
-  var name = employee === null ? '员工' : String(employee.name || shortId(employee.id))
-  var role = employee === null ? '' : (positionName(employee.position) || '通用')
-  var label = $('navCurrentName')
-  if (label !== null) label.textContent = name
-  var button = $('btnNavCurrent')
-  if (button !== null) {
-    button.title = employee === null ? '展开员工与会话' : '当前：' + name + '（' + role + '）· 展开员工与会话'
-    button.setAttribute('aria-label', button.title)
-  }
-  var avatar = $('navCurrentAvatar')
-  var id = employee === null ? '' : String(employee.id || '')
-  if (avatar !== null && avatar.getAttribute('data-peer') !== id) {
-    clear(avatar)
-    avatar.setAttribute('data-peer', id)
-    if (employee !== null) {
-      avatar.appendChild(avatarNode(employee, 30))
+  var list = $('employeeNavQuickList')
+  if (list === null) return
+  var members = officeSections().reduce(function (all, section) { return all.concat(section.members) }, [])
+  var ids = new Set()
+  members.forEach(function (employee, index) {
+    var id = String(employee.id || '')
+    if (id === '') return
+    ids.add(id)
+    var button = Array.from(list.children).find(function (node) { return node.getAttribute('data-employee-id') === id })
+    if (button === undefined) {
+      button = el('button', 'ghost chat-nav-person')
+      button.type = 'button'
+      button.setAttribute('data-employee-id', id)
+      button.appendChild(avatarNode(employee, 30))
+      button.appendChild(el('span', 'chat-nav-person-name'))
+      button.onclick = function () { if (state.selectedEmployeeId !== id) selectEmployee(id) }
+      list.appendChild(button)
       ensureAvatar(employee)
     }
-  }
+    var name = String(employee.name || shortId(id))
+    var role = positionName(employee.position) || '通用'
+    if (button.lastChild.textContent !== name) button.lastChild.textContent = name
+    button.title = name + '（' + role + '）' + (employee.nodeOnline === false ? ' · 节点离线' : '')
+    button.setAttribute('aria-label', '切换到' + button.title)
+    button.setAttribute('aria-pressed', id === state.selectedEmployeeId ? 'true' : 'false')
+    button.classList.toggle('selected', id === state.selectedEmployeeId)
+    button.classList.toggle('is-offline', employee.nodeOnline === false)
+    if (list.children[index] !== button) list.insertBefore(button, list.children[index] || null)
+  })
+  Array.from(list.children).forEach(function (node) {
+    if (!ids.has(node.getAttribute('data-employee-id'))) list.removeChild(node)
+  })
 }
 
 function bindEmployeeNavigationUi() {
   var open = $('btnChatSessions')
   if (open !== null) open.onclick = function () { toggleSessionPanel() }
-  var current = $('btnNavCurrent')
-  if (current !== null) current.onclick = function () { toggleSessionPanel(true) }
   var close = $('btnPanel')
   if (close !== null) close.onclick = function () { toggleSessionPanel(false) }
   var backdrop = $('employeeNavBackdrop')
@@ -841,10 +851,14 @@ var VIEW_IDS = {
  * 进入某个视图时要拉的数据。
  *
  * 各面板原本的约定是"展开那一刻才拉"（不给 Hub 添常态负担），换成一级页之后
- * "展开"就等于"切到这一页"，所以统一挂在这里。没列进来的视图（办公区 / 对话）
- * 不进这里：它们的数据由连接时和事件推送维护，切回来不该重新拉一遍。
+ * "展开"就等于"切到这一页"，所以统一挂在这里。办公区只重画，聊天由选中流程维护；
+ * 它们的数据由连接时和事件推送维护，切回来不该重新拉一遍。
  */
 var VIEW_LOADERS = {
+  /* 员工切换期间不重建隐藏的办公区，真正返回时再更新当前员工高亮。 */
+  office: function () {
+    renderEmployees()
+  },
   /* 办公室不是"拉数据"，而是"重画一遍"：它用的员工与忙闲状态由连接与轮询维护，
      切回来时数据本来就是新的，只是场景 DOM 可能停在离开那一刻（忙闲/在线状态变了）。
      所以这里挂的是重绘，不是 RPC —— 它不产生任何请求，也就不违反"进入哪一页只拉那一页"的约定。 */

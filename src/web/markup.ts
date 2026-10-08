@@ -474,9 +474,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M9 4v16M13 9h4M13 13h4"></path></svg>
         <span>员工</span>
       </button>
-      <button class="ghost chat-nav-current" id="btnNavCurrent" type="button" aria-controls="sessionPanel" title="当前员工 · 展开员工与会话">
-        <span id="navCurrentAvatar"></span><span id="navCurrentName">员工</span>
-      </button>
+      <div class="chat-nav-people" id="employeeNavQuickList" role="group" aria-label="快捷切换员工"></div>
     </nav>
     <div class="chat-nav-backdrop hidden" id="employeeNavBackdrop" aria-hidden="true"></div>
     <aside class="chat-sessions hidden" id="sessionPanel" aria-label="员工与会话">
@@ -519,7 +517,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
              没选员工时这里是空的，CSS 用 :empty 把整列收成 0。 -->
         <span class="chat-peer-avatar" id="chatPeerAvatar"></span>
         <span class="chat-peer-name" id="employeeTitle">对话</span>
-        <span class="chat-peer-status"><span class="chat-peer-position" id="chatPeerPosition"></span><span class="chat-dot online" id="chatDot"></span><span id="streamState"></span><!--
+        <span class="chat-peer-status"><span class="chat-peer-position" id="chatPeerPosition"></span><span class="chat-dot online" id="chatDot"></span><span id="streamState"></span><span class="chat-sync-status" id="chatSyncStatus" role="status" aria-live="polite"></span><!--
           上下文占用小圈：数字来自 dsh 的 session/projection 帧（解析见 script/65-chat.ts）。
           没有数据时整块隐藏 —— **绝不显示 0%**（那是在编数字）。点一下展开构成。
         --><button class="ctx-ring hidden" id="ctxRing" type="button" aria-label="上下文占用" title=""></button><span class="ctx-pop hidden" id="ctxPop"></span></span>

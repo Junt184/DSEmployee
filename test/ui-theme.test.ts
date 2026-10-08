@@ -306,7 +306,7 @@ function makeAsideHarness(): {
   rpcCalls: Array<{ method: string }>
 } {
   const rpcCalls: Array<{ method: string }> = []
-  const state = { phase: 'connecting', selectedEmployeeId: 'emp_1', aside: null as { skills: unknown; files: unknown } | null }
+  const state = { phase: 'connecting', selectedEmployeeId: 'emp_1', aside: null as { skills: unknown; files: unknown } | null, asideCache: new Map() }
   const scope: Record<string, unknown> = {
     state,
     employeeById: (): unknown => ({ id: 'emp_1', name: '栀子', position: '' }),

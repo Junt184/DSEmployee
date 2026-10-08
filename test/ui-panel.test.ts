@@ -126,98 +126,98 @@ const mid = MEDIA.filter((entry) => entry.query.startsWith('(min-width: 641px) a
 const wideCss = wide.map((entry) => entry.body).join('\n')
 const midCss = mid.map((entry) => entry.body).join('\n')
 
-describe('左栏折叠：CSS 契约', () => {
-  it('只收左栏：左轨道压 0，右轨道原样留着', () => {
-    const body = ruleBody(wideCss, `${PANEL_COLLAPSED} {`)
-    assert.ok(body !== undefined, '宽屏缺少"只收左栏"的列定义')
+describe('员工导航：CSS 契约', () => {
+  /* 导航重构后，"左栏折叠"这件事的**宿主**换了：
+     以前折叠类是挂在 `#viewChat` 上的（左栏是那一页网格里的一条轨道）；
+     现在员工导航属于公共外壳 `#viewChatShell`（窄栏 + 面板 + 工作区），
+     折叠类挂在**外壳**上，工作区在展开与收起两种状态下都占第二列。
+     于是这一组断的东西整体换了一份 —— 换的是宿主，不是"能不能收"这个契约。 */
+
+  it('宽屏展开：面板占第一列，工作区占第二列', () => {
+    const body = ruleBody(wideCss, '#viewChatShell {')
+    assert.ok(body !== undefined, '≥1200px 缺少外壳的列定义')
     const columns = tracks(String(declaration(body, 'grid-template-columns')))
-    assert.equal(columns.length, 3, '宽屏仍是三栏栅格（只把左轨道收成 0）')
-    assert.equal(columns[0], '0', `左轨道应为 0，实际 "${columns[0]}"`)
-    assert.ok(String(columns[2]).includes('340px'), '右栏轨道必须原样保留（收左栏不该动右栏）')
+    assert.equal(columns.length, 2, '外壳是"导航 + 工作区"两列')
+    assert.ok(String(columns[0]).includes('clamp(240px'), `第一列应是常驻面板宽度，实际 "${columns[0]}"`)
+    assert.equal(columns[1], 'minmax(0, 1fr)')
   })
 
-  it('两条轨道都收：组合态必须单独写（否则左栏会留一条 220–260px 的空档）', () => {
-    const body = ruleBody(wideCss, `${BOTH_COLLAPSED} {`)
-    assert.ok(body !== undefined, '缺少"两栏都收"的组合规则')
+  it('宽屏收起：面板轨道压到 52px，工作区仍是第二列（收的是面板，不是整页）', () => {
+    const body = ruleBody(wideCss, '#viewChatShell.panel-collapsed {')
+    assert.ok(body !== undefined, '≥1200px 缺少"收起面板"的列定义')
     const columns = tracks(String(declaration(body, 'grid-template-columns')))
-    assert.deepEqual(columns, ['0', 'minmax(0, 1fr)', '0'], '两栏都收时只剩中间那一列')
+    assert.deepEqual(columns, ['52px', 'minmax(0, 1fr)'], '收起后第一列收成窄栏宽度')
   })
 
-  it('组合态的 specificity 必须高过单收 —— 否则两栏都收时左栏收不掉', () => {
-    /* 三条规则写的是同一条属性，CSS 只认 specificity（不认书写顺序）。
-       数 id / 类 / 属性选择器的个数即可：#viewChat.aside-collapsed 是 (1,1)，
-       本页两条依次是 (1,3) 与 (1,4)。 */
-    const count = (selector: string): number => {
-      const id = (selector.match(/#/g) ?? []).length
-      const cls = (selector.match(/\./g) ?? []).length
-      const attr = (selector.match(/\[/g) ?? []).length
-      return id * 100 + (cls + attr) * 10
+  it('收起后窄栏必须露出来 —— 这是"还能打开"的唯一入口', () => {
+    /* 展开时窄栏是藏着的（面板本身就是导航）；收起时若不把它放出来，
+       宽屏上收起一次就再也点不回来了 —— 按钮跟着面板一起消失。 */
+    const body = ruleBody(wideCss, '#viewChatShell:not(.panel-collapsed) > .chat-nav-rail {')
+    assert.ok(body !== undefined, '缺少"展开时藏窄栏"的规则')
+    assert.equal(declaration(body, 'display'), 'none')
+    assert.ok(
+      ruleBody(wideCss, '#viewChatShell.panel-collapsed > .chat-nav-rail {') === undefined,
+      '收起态不该再藏窄栏（那正是要它出现的状态）',
+    )
+  })
+
+  it('窄栏的宽度在三档里都有定义（收起态 52px、手机 44px）', () => {
+    const base = ruleBody(BASE, '#viewChatShell {')
+    assert.ok(base !== undefined, '缺少外壳的基础规则')
+    assert.equal(declaration(base, 'grid-template-columns'), '52px minmax(0, 1fr)')
+    const narrow = MEDIA.filter((entry) => entry.query.startsWith('(max-width: 640px)'))
+    assert.ok(narrow.length > 0, '缺少手机档')
+    const phone = narrow.map((entry) => ruleBody(entry.body, '#viewChatShell {')).filter((body) => body !== undefined)
+    assert.ok(phone.length > 0, '手机档缺少外壳列定义')
+    assert.equal(declaration(String(phone[0]), 'grid-template-columns'), '44px minmax(0, 1fr)')
+  })
+
+  it('桌面偏好只在宽屏生效：折叠列的规则必须待在 ≥1200px 里', () => {
+    /* 中档与窄屏的导航是**抽屉**（靠 .drawer-open + .hidden 开关）。
+       若面板列的折叠规则在窄屏也生效，"大屏上收起了面板"这条存档会把抽屉永久锁死，
+       而按钮还在 —— 又一个死键。 */
+    assert.equal(
+      ruleBody(BASE, '#viewChatShell.panel-collapsed {'),
+      undefined,
+      '基础样式里不许有它：窄屏的导航是抽屉，不是被压成 0 的轨道',
+    )
+    for (const entry of MEDIA) {
+      if (entry.query.startsWith('(min-width: 1200px)')) continue
+      assert.equal(
+        ruleBody(entry.body, '#viewChatShell.panel-collapsed {'),
+        undefined,
+        `${entry.query} 里不该有面板列折叠规则`,
+      )
     }
-    assert.ok(
-      count(BOTH_COLLAPSED) > count('#viewChat.aside-collapsed'),
-      '组合态必须比"只收右栏"更 specific，否则两栏都收时右栏的规则会赢、左栏收不掉',
-    )
-    assert.ok(count(PANEL_COLLAPSED) > count('#viewChat.aside-collapsed'))
   })
 
-  it('折叠规则待在 ≥1200px 里 —— 窄屏那条抽屉不能被大屏的存档锁死', () => {
-    assert.ok(
-      ruleBody(wideCss, `${PANEL_COLLAPSED} > #sessionPanel {`) !== undefined,
-      '≥1200px 里缺少"藏掉左栏"的规则',
-    )
-    assert.equal(
-      ruleBody(BASE, `${PANEL_COLLAPSED} > #sessionPanel {`),
-      undefined,
-      '基础样式里不许有它：中档/窄屏的 #sessionPanel 是「会话」抽屉（靠 .hidden 开关），' +
-        '在窄屏生效会让抽屉再也打不开 —— 按钮变死键',
-    )
+  it('导航是四个岗位共用的：折叠规则不许按 layout-* 分叉', () => {
+    /* 以前要写 `:not([class*="layout-"])` 把秘书页与四宫格排除掉 ——
+       那几页把左栏重摆成了自己的下拉带。现在导航在外壳上、四个岗位共用一份，
+       分叉的理由不存在了；折叠规则里再出现 layout-* 就说明又长出第二份实现。 */
+    const selectors = [...CSS.matchAll(/([^{}]*\.panel-collapsed[^{}]*)\{/g)]
+      .map((match) => String(match[1]).trim())
+    assert.ok(selectors.length > 0, '一条折叠规则都没有？')
+    for (const selector of selectors) {
+      assert.ok(!selector.includes('layout-'), `折叠规则按岗位分叉了：${selector}`)
+    }
   })
 
-  it('排除别的外壳：秘书页 / 四宫格里的会话带不能被它藏掉', () => {
-    /* 用 [class*="layout-"] 一次排除，而不是逐个列举 layout-secretary / layout-quad ——
-       以后再加一个 layout-* 外壳，逐条列举那种写法必漏，漏了就是死键。 */
-    assert.ok(
-      ruleBody(wideCss, `${PANEL_COLLAPSED} > #sessionPanel {`) !== undefined,
-      '排除条件必须写在选择器里（本用例的 PANEL_COLLAPSED 自带 :not([class*="layout-"])）',
-    )
-    assert.ok(
-      CSS.includes('#viewChat:not([class*="layout-"]).panel-collapsed.aside-collapsed'),
-      '组合态同样要排除别的外壳',
-    )
-  })
-
-  it('中档没有左栏，因此中档不许出现 panel-collapsed 的列定义', () => {
-    assert.equal(
-      ruleBody(midCss, `${PANEL_COLLAPSED} {`),
-      undefined,
-      '中档是"对话 + 右栏"两栏，左栏走抽屉，不该有左栏折叠规则',
-    )
-    assert.equal(ruleBody(midCss, '#btnPanel {'), undefined, '中档不该把左栏开关显示出来')
-  })
-
-  it('左栏开关只在 ≥1200px 出现（与"常驻左栏"存在的档位严格一致）', () => {
-    const base = ruleBody(BASE, '#btnPanel {')
-    assert.ok(base !== undefined, '缺少 #btnPanel 基础规则')
-    assert.equal(declaration(base, 'display'), 'none', '默认藏起来')
-
-    const shown = wide.map((entry) => ruleBody(entry.body, '#btnPanel {')).filter((body) => body !== undefined)
-    assert.ok(shown.length > 0, '≥1200px 缺少显示左栏开关的规则')
-    /* inline-block 而不是 inline-flex：后者会把 button 自带的"内容居中盒"顶掉、文字贴顶
-       （实测上下偏移 -6.5px，与旁边「新会话」差 6.2px）。详见下面那条守卫。 */
-    assert.equal(declaration(String(shown[0]), 'display'), 'inline-block')
-
-    /* 别的外壳里左栏不是常驻列，按钮也不该出现 */
-    const hiddenInShell = wide
-      .map((entry) => ruleBody(entry.body, '#viewChat[class*="layout-"] > .chat-top #btnPanel {'))
-      .filter((body) => body !== undefined)
-    assert.ok(hiddenInShell.length > 0, '秘书页/四宫格里必须把左栏开关藏掉（不给死键）')
-    assert.equal(declaration(String(hiddenInShell[0]), 'display'), 'none')
-  })
-
-  it('页面里 #btnPanel 只出现一次（重复 id 会让 JS 只绑到第一个）', () => {
+  it('收起键只有一个（面板标题栏里的 ‹），且两档都能按到', () => {
     const html = renderControlUi({ hubId: 'h', hubName: 'n', scriptUrl: '/ui.js' })
     const occurrences = html.split('id="btnPanel"').length - 1
     assert.equal(occurrences, 1, `页面里出现了 ${occurrences} 次 #btnPanel`)
+    assert.ok(
+      html.includes('id="btnPanel" class="ghost cs-nav-close"'),
+      '收起键应当住在面板标题栏里（cs-nav-close）—— 它同时是宽屏的收起与窄屏的关闭',
+    )
+    /* 面板里的收起键在两个档位都是同一个动作：宽屏 = 收起常驻面板；窄屏 = 关抽屉。
+       所以它**不该**被任何档位藏掉（藏了那个档位就再也收不起导航）。 */
+    const scopes = [BASE, ...MEDIA.map((entry) => entry.body)]
+    const hidden = scopes.flatMap((scope) => allRuleBodies(scope, '.cs-nav-close {'))
+      .map((body) => declaration(body, 'display'))
+      .filter((one) => one === 'none')
+    assert.equal(hidden.length, 0, '.cs-nav-close 被某个档位藏掉了')
   })
 
   it('控可见性的 display 必须是 inline-block —— 写成 flex 会让按钮文字贴顶', () => {
@@ -230,11 +230,7 @@ describe('左栏折叠：CSS 契约', () => {
        这条测不了像素（要真浏览器），但能钉住"别再写回 inline-flex"。 */
     const selectors = [
       '#btnAside {',
-      '#btnPanel {',
-      '#viewChat.layout-secretary > .chat-top #btnChatSessions {',
-      '#viewChat.layout-quad > .chat-top #btnChatSessions {',
       '#viewChat.layout-quad > .chat-top #btnQuadSkin {',
-      '#viewChat.layout-quad-chat > .chat-top #btnChatSessions {',
       '#viewChat.layout-quad-chat > .chat-top #btnQuadSkin {',
     ]
     for (const selector of selectors) {
@@ -280,9 +276,14 @@ interface FakeElement {
   attrs: Record<string, string>
   title: string
   textContent: string
+  inert?: boolean
   classes: Set<string>
   setAttribute(name: string, value: string): void
+  removeAttribute(name: string): void
+  getAttribute(name: string): string | null
+  contains(node: unknown): boolean
   classList: { toggle(name: string, on: boolean): void; contains(name: string): boolean }
+  focus(): void
 }
 
 function makeElement(): FakeElement {
@@ -294,6 +295,15 @@ function makeElement(): FakeElement {
     setAttribute(name, value) {
       element.attrs[name] = value
     },
+    removeAttribute(name) {
+      delete element.attrs[name]
+    },
+    getAttribute(name) {
+      return element.attrs[name] ?? null
+    },
+    contains() {
+      return false
+    },
     classList: {
       toggle(name, on) {
         if (on) element.classes.add(name)
@@ -303,116 +313,168 @@ function makeElement(): FakeElement {
         return element.classes.has(name)
       },
     },
+    focus() {},
   }
   return element
 }
 
-function makePanelHarness() {
-  const chat = makeElement()
-  const button = makeElement()
+/**
+ * 员工导航的假 DOM：外壳、面板、遮罩、工作区、窄栏 + 三个按钮。
+ *
+ * `docked` 控制 matchMedia 的答案（宽屏常驻 / 窄屏抽屉），
+ * 两个档位的代码路径完全不同，所以两组用例各挑一边。
+ */
+function makePanelHarness(options: { docked?: boolean } = {}) {
+  const shell = makeElement()
+  const panel = makeElement()
+  const backdrop = makeElement()
+  const workspace = makeElement()
+  const rail = makeElement()
+  const openButton = makeElement()
+  const closeButton = makeElement()
+  const nodes: Record<string, FakeElement> = {
+    viewChatShell: shell, sessionPanel: panel, employeeNavBackdrop: backdrop,
+    viewChat: workspace, employeeNavRail: rail, btnChatSessions: openButton, btnPanel: closeButton,
+  }
   const store = new Map<string, string>()
+  const calls = { loadSessions: 0, loadSessionTree: 0, updateEffectivePreset: 0 }
+  const docked = options.docked ?? true
   const scope = {
-    state: { panelVisible: true } as { panelVisible: boolean },
+    state: { panelVisible: true, sessionNavOpen: false, view: 'chat' },
     LS: { panel: 'dse.panelVisible' },
-    $: (id: string) => (id === 'viewChat' ? chat : id === 'btnPanel' ? button : null),
+    $: (id: string) => nodes[id] ?? null,
     readLocal: (key: string) => (store.has(key) ? (store.get(key) as string) : null),
     writeLocal: (key: string, value: string) => void store.set(key, value),
+    window: { matchMedia: () => ({ matches: docked, addEventListener: () => {}, addListener: () => {} }) },
+    document: { activeElement: null },
+    /* toggleSessionPanel 打开导航时会顺手刷新这些；导航显隐不是它们的职责，
+       但"有没有被叫到"要能数出来（见最后一条用例）。 */
+    updateEffectivePreset: () => void (calls.updateEffectivePreset += 1),
+    loadSessions: () => { calls.loadSessions += 1; return Promise.resolve([]) },
+    loadSessionTree: () => void (calls.loadSessionTree += 1),
   }
+  /* 断点从交付脚本里**抠出来**，不在测试里复刻一份 —— 复刻的那份迟早与源码分叉，
+     而这条断点决定了"常驻"与"抽屉"两条完全不同的代码路径。 */
+  const dockQuery = /var CHAT_NAV_DOCK_QUERY = '([^']+)'/.exec(SCRIPT)?.[1]
+  assert.ok(dockQuery !== undefined, '交付脚本里找不到 CHAT_NAV_DOCK_QUERY')
   const factory = new Function(
     'scope',
     `with (scope) {
+      var CHAT_NAV_DOCK_QUERY = ${JSON.stringify(dockQuery)};
+      ${extractFunction('sessionNavDocked')}
       ${extractFunction('currentPanelVisible')}
       ${extractFunction('syncPanelToggle')}
       ${extractFunction('applyPanelVisible')}
-      ${extractFunction('togglePanel')}
-      return { currentPanelVisible, syncPanelToggle, applyPanelVisible, togglePanel, state }
+      ${extractFunction('closeSessionNavDrawer')}
+      ${extractFunction('toggleSessionPanel')}
+      return { sessionNavDocked, currentPanelVisible, syncPanelToggle, applyPanelVisible,
+        closeSessionNavDrawer, toggleSessionPanel, state }
     }`,
   ) as (scope: unknown) => {
+    sessionNavDocked: () => boolean
     currentPanelVisible: () => boolean
+    syncPanelToggle: () => void
     applyPanelVisible: (visible: boolean) => void
-    togglePanel: () => void
-    state: { panelVisible: boolean }
+    closeSessionNavDrawer: () => void
+    toggleSessionPanel: (show?: boolean) => void
+    state: { panelVisible: boolean; sessionNavOpen: boolean; view: string }
   }
   const api = factory(scope)
-  return { ...api, chat, button, store }
+  return { ...api, shell, panel, backdrop, workspace, rail, openButton, closeButton, store, calls }
 }
 
-describe('左栏折叠行为（跑交付脚本里的真源码）', () => {
-  it('默认展开：不挂折叠类，按钮 aria-pressed=true', () => {
-    const h = makePanelHarness()
+describe('员工导航行为（跑交付脚本里的真源码）', () => {
+  it('宽屏默认展开：不挂折叠类，面板可见、窄栏藏着', () => {
+    const h = makePanelHarness({ docked: true })
     h.applyPanelVisible(h.currentPanelVisible())
-    assert.equal(h.chat.classes.has('panel-collapsed'), false)
-    assert.equal(h.button.attrs['aria-pressed'], 'true')
-    assert.equal(h.button.classes.has('primary'), true)
+    assert.equal(h.shell.classes.has('panel-collapsed'), false)
+    assert.equal(h.panel.classes.has('hidden'), false)
+    assert.equal(h.openButton.attrs['aria-expanded'], 'true')
+    assert.equal(h.closeButton.attrs['aria-expanded'], 'true')
   })
 
-  it('切换一次即收起：挂类 + 写 localStorage + aria 翻转', () => {
-    const h = makePanelHarness()
+  it('宽屏收起一次：外壳挂上折叠类 + 写存档 + aria 翻转', () => {
+    const h = makePanelHarness({ docked: true })
     h.applyPanelVisible(true)
-    h.togglePanel()
-    assert.equal(h.state.panelVisible, false)
-    assert.equal(h.chat.classes.has('panel-collapsed'), true, '收起时 #viewChat 要挂 panel-collapsed')
+    h.toggleSessionPanel()
+    assert.equal(h.shell.classes.has('panel-collapsed'), true)
     assert.equal(h.store.get('dse.panelVisible'), 'hidden')
-    assert.equal(h.button.attrs['aria-pressed'], 'false')
-    assert.equal(h.button.classes.has('primary'), false)
+    assert.equal(h.panel.classes.has('hidden'), true)
+    assert.equal(h.openButton.attrs['aria-expanded'], 'false')
+    assert.equal(h.closeButton.attrs['aria-expanded'], 'false')
   })
 
-  it('再切一次恢复展开（往返不丢状态）', () => {
-    const h = makePanelHarness()
+  it('再点一次恢复展开（往返不丢状态）', () => {
+    const h = makePanelHarness({ docked: true })
     h.applyPanelVisible(true)
-    h.togglePanel()
-    h.togglePanel()
-    assert.equal(h.state.panelVisible, true)
-    assert.equal(h.chat.classes.has('panel-collapsed'), false)
+    h.toggleSessionPanel()
+    h.toggleSessionPanel()
+    assert.equal(h.shell.classes.has('panel-collapsed'), false)
     assert.equal(h.store.get('dse.panelVisible'), 'shown')
+    assert.equal(h.panel.classes.has('hidden'), false)
   })
 
-  it('刷新后沿用存档（收起过的设备不该自己变回展开）', () => {
-    const h = makePanelHarness()
-    h.store.set('dse.panelVisible', 'hidden')
-    assert.equal(h.currentPanelVisible(), false)
-    h.applyPanelVisible(h.currentPanelVisible())
-    assert.equal(h.chat.classes.has('panel-collapsed'), true)
+  it('刷新后沿用存档：收起过的设备不该自己变回展开', () => {
+    const first = makePanelHarness({ docked: true })
+    first.applyPanelVisible(true)
+    first.toggleSessionPanel()
+    /* 同一份 localStorage 换一个内存态 = 刷新页面 */
+    const second = makePanelHarness({ docked: true })
+    second.store.set('dse.panelVisible', String(first.store.get('dse.panelVisible')))
+    second.applyPanelVisible(second.currentPanelVisible())
+    assert.equal(second.currentPanelVisible(), false)
+    assert.equal(second.shell.classes.has('panel-collapsed'), true)
   })
 
-  it('左右两栏互不牵连：不同的类、不同的存档键、不同的 state 字段', () => {
-    /* 合成一个键/一个类的后果很具体："我只想收左栏"会顺手把右栏也收掉，
-       而且换一块屏幕时会一起被带回来 —— 这是最容易图省事写错的一步。 */
-    assert.ok(SCRIPT.includes("classList.toggle('panel-collapsed'"), '左栏挂 panel-collapsed')
-    assert.ok(SCRIPT.includes("classList.toggle('aside-collapsed'"), '右栏挂 aside-collapsed')
-    assert.ok(SCRIPT.includes("panel: 'dse.panelVisible'"), '左栏有自己的存档键')
-    assert.ok(SCRIPT.includes("aside: 'dse.asideVisible'"), '右栏的存档键原样保留')
-    assert.ok(SCRIPT.includes('panelVisible: true'), '左栏有自己的 state 字段')
-    assert.ok(SCRIPT.includes('asideVisible: true'), '右栏的 state 字段原样保留')
-
-    const h = makePanelHarness()
-    h.togglePanel()
-    assert.equal(h.store.has('dse.asideVisible'), false, '收左栏不该去动右栏的存档')
-  })
-
-  it('绑定点在"总会执行"的 bindEvents 里，而不是只在点过工位之后', () => {
-    /* 右栏当初踩过这个坑（见 90-devices.ts 的注释）：绑在 bindChatUi 里，
-       深链/通知直接进聊天页时按钮就是死键。左栏必须绑在同一处。 */
-    assert.ok(SCRIPT.includes("$('btnPanel')"), '交付脚本里要有 #btnPanel 的查找')
-    assert.ok(/var panelToggle = \$\('btnPanel'\)/.test(SCRIPT), '按 #btnAside 同款写法绑定')
-    assert.ok(SCRIPT.includes('panelToggle.onclick = togglePanel'))
-  })
-
-  it('文案必须说清"这是个折叠栏的开关"，且跟着状态改口', () => {
-    /* 真实反馈：原来只写「会话」，和上面的「会话」抽屉、和"切到某某页"长得一样，
-       用户找了一圈说"没看到收侧边栏的按钮"。所以文案里必须有"栏折叠"。 */
-    const html = renderControlUi({ hubId: 'h', hubName: 'n', scriptUrl: '/ui.js' })
-    assert.ok(
-      html.includes('id="btnPanel" class="ghost" aria-pressed="false" title="收起左侧的会话栏">会话栏折叠</button>'),
-      '页面里的初始文案应当是「会话栏折叠」（脚本没起来之前也该是对的）',
-    )
-    const h = makePanelHarness()
+  it('窄屏是抽屉：打开只改临时状态，绝不动桌面偏好那份存档', () => {
+    const h = makePanelHarness({ docked: false })
     h.applyPanelVisible(true)
-    assert.equal(h.button.textContent, '会话栏折叠', '展开时写"折叠"——那一下点下去确实是收')
-    h.togglePanel()
-    assert.equal(h.button.textContent, '会话栏展开', '收起后必须改口：动作已经是展开了，还喊"折叠"就是假话')
-    assert.equal(h.button.title, '展开左侧的会话栏')
-    h.togglePanel()
-    assert.equal(h.button.textContent, '会话栏折叠', '再点回来要恢复原文案')
+    h.toggleSessionPanel()
+    assert.equal(h.state.sessionNavOpen, true)
+    assert.equal(h.shell.classes.has('drawer-open'), true)
+    assert.equal(h.shell.classes.has('panel-collapsed'), false, '窄屏开抽屉不该动折叠类')
+    assert.equal(h.store.get('dse.panelVisible'), 'shown', '窄屏开关不许写桌面偏好')
+    assert.equal(h.panel.classes.has('hidden'), false)
+    assert.equal(h.panel.attrs['role'], 'dialog')
+    assert.equal(h.panel.attrs['aria-modal'], 'true')
+    assert.equal(h.backdrop.classes.has('hidden'), false, '抽屉要带遮罩')
+    assert.equal(h.workspace.inert, true, '抽屉打开时工作区不可交互')
+    assert.equal(h.rail.inert, true)
+  })
+
+  it('窄屏关闭抽屉：临时状态清掉、遮罩收起、工作区解禁，桌面偏好依然不动', () => {
+    const h = makePanelHarness({ docked: false })
+    h.toggleSessionPanel()
+    h.closeSessionNavDrawer()
+    assert.equal(h.state.sessionNavOpen, false)
+    assert.equal(h.shell.classes.has('drawer-open'), false)
+    assert.equal(h.panel.classes.has('hidden'), true)
+    assert.equal(h.backdrop.classes.has('hidden'), true)
+    assert.equal(h.workspace.inert, false)
+    assert.equal(h.rail.inert, false)
+    assert.equal(h.store.has('dse.panelVisible'), false, '全程没有写过桌面偏好')
+  })
+
+  it('宽屏收起后窄栏是"还能打开"的那条路：收起态下窄栏不被藏、展开态才藏', () => {
+    /* 这条测的是状态机的意图（CSS 负责把它画出来，见上面那组契约）：
+       收起 = 面板藏、窄栏露；展开 = 面板露、窄栏藏。 */
+    const h = makePanelHarness({ docked: true })
+    h.applyPanelVisible(true)
+    assert.equal(h.panel.classes.has('hidden'), false)
+    h.applyPanelVisible(false)
+    assert.equal(h.panel.classes.has('hidden'), true, '收起后常驻面板必须让位')
+    assert.equal(h.shell.classes.has('panel-collapsed'), true, '收起态靠这个类把窄栏放出来')
+  })
+
+  it('打开导航会顺手刷新会话列表与生效 preset（否则首屏是空的）', () => {
+    /* 这三个取数不在这一组的范围里，但"把导航打开却什么都不拉"是真实的空屏事故：
+       面板露出来了，里面还是上一轮的旧列表。 */
+    const h = makePanelHarness({ docked: true })
+    h.applyPanelVisible(false)
+    const before = { ...h.calls }
+    h.toggleSessionPanel()
+    assert.ok(h.calls.loadSessions > before.loadSessions, '打开导航要刷新会话列表')
+    assert.ok(h.calls.loadSessionTree > before.loadSessionTree, '打开导航要补拉展开员工的会话')
+    assert.ok(h.calls.updateEffectivePreset > before.updateEffectivePreset, '打开导航要重算生效 preset')
   })
 })

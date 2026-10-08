@@ -931,19 +931,26 @@ li.empty { color: var(--muted); padding: 6px 2px; border: 1px dashed var(--line)
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
+  min-height: 0;
   padding: calc(10px + env(safe-area-inset-top)) 3px calc(10px + env(safe-area-inset-bottom));
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
 .chat-nav-rail button { width: 44px; min-height: 48px; padding: 6px 2px; border: 0; background: transparent; color: var(--muted); }
 .chat-nav-rail button:hover { background: var(--panel-2); color: var(--accent); }
-.chat-nav-open, .chat-nav-current { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 10px; }
+.chat-nav-open, .chat-nav-person { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 10px; }
+.chat-nav-open { flex: 0 0 auto; }
 .chat-nav-open svg { flex: 0 0 auto; }
-.chat-nav-current { color: var(--accent) !important; }
-.chat-nav-current > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-nav-current .desk-avatar-box { display: flex; width: 30px; height: 30px; margin: 0; }
-.chat-nav-current .desk-avatar { width: 100%; height: 100%; margin: 0; }
+.chat-nav-people { flex: 1 1 auto; min-height: 0; width: 100%; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-block: 4px; }
+.chat-nav-people::-webkit-scrollbar { display: none; }
+.chat-nav-rail .chat-nav-person { position: relative; flex: 0 0 auto; min-height: 60px; border-radius: 10px; transition: background-color 120ms ease, color 120ms ease; }
+.chat-nav-rail .chat-nav-person.selected { background: var(--active-bg); color: var(--accent); box-shadow: inset 2px 0 var(--accent); }
+.chat-nav-person-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-nav-person .desk-avatar-box { display: flex; width: 30px; height: 30px; margin: 0; }
+.chat-nav-person .desk-avatar { width: 100%; height: 100%; margin: 0; }
+.chat-nav-person.is-offline .desk-avatar-box { opacity: 0.5; }
+.chat-nav-person.is-offline::after { content: ''; position: absolute; right: 6px; top: 28px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); border: 1px solid var(--panel); }
 .chat-nav-backdrop { position: absolute; inset: 0; z-index: 5; background: rgba(0, 0, 0, 0.28); }
 #sessionPanel {
   --nav-border: color-mix(in srgb, var(--line) 78%, transparent);
@@ -1062,6 +1069,8 @@ li.empty { color: var(--muted); padding: 6px 2px; border: 1px dashed var(--line)
 }
 .chat-peer-position { max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-peer-position:empty { display: none; }
+.chat-sync-status { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.chat-sync-status:empty { display: none; }
 .chat-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 .chat-dot.off { background: var(--muted); }
 .chat-dot.busy { background: var(--accent); animation: desk-pulse 1.6s ease-in-out infinite; }
@@ -1728,7 +1737,7 @@ details.card > summary + * { margin-top: 8px; }
   /* 员工导航在外层，舞台与对话保持独立布局。 */
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "stage top"
+    "top top"
     "stage pull"
     "stage messages"
     "stage composer";
@@ -1990,7 +1999,7 @@ details.card > summary + * { margin-top: 8px; }
     position: relative;
     inset: auto;
     grid-column: 2;
-    grid-row: 1 / -1;
+    grid-row: 2 / -1;
     width: 100%;
     height: 100%;
     border-left: 1px solid var(--line);
@@ -3183,10 +3192,10 @@ details.card > summary + * { margin-top: 8px; }
 /* 上下文小圈"快满"的那档原来写死了一个红（#d9534f），这里收回令牌，跟 --bad 一起管 */
 .skin-neon .ctx-ring.hot { --ctx-hot: var(--bad); }
 
-/* ══════════ 默认员工聊天页：舒适度层（不触碰秘书页 / 四宫格）══════════
+/* ══════════ 统一身份顶栏与默认聊天页舒适度层 ══════════
  *
  * 默认页是每天反复使用的主工作面：信息架构已经稳定，这里只改善阅读节奏与触控反馈。
- * 作用域刻意锁在「没有 layout-* 外壳」的 #viewChat，避免特殊岗位继续沿用自己的舞台布局。
+ * 顶部身份与操作保持一致；消息与输入区的规则限定在默认页，专属岗位保留自己的舞台布局。
  * 形状采用克制的 Apple 风圆角、半透明表面与轻阴影，不引入渐变或装饰性背景。 */
 #viewChat:not([class*="layout-"]) {
   --regular-chat-canvas: color-mix(in srgb, var(--bg) 92%, var(--panel-2));
@@ -3195,15 +3204,15 @@ details.card > summary + * { margin-top: 8px; }
   background: var(--regular-chat-canvas);
 }
 
-#viewChat:not([class*="layout-"]) > .chat-top {
+#viewChat > .chat-top {
   min-height: 58px;
   gap: 10px;
   background: color-mix(in srgb, var(--panel) 86%, transparent);
-  border-bottom-color: var(--regular-chat-border);
+  border-bottom-color: var(--regular-chat-border, var(--line));
   box-shadow: 0 1px 0 color-mix(in srgb, var(--panel) 70%, transparent), 0 8px 24px rgba(0, 0, 0, 0.045);
 }
 
-#viewChat:not([class*="layout-"]) > .chat-top .chat-back {
+#viewChat > .chat-top .chat-back {
   border: 1px solid transparent;
   border-radius: 14px;
   background: color-mix(in srgb, var(--panel-2) 72%, transparent);
@@ -3211,32 +3220,34 @@ details.card > summary + * { margin-top: 8px; }
   font-size: 26px;
   transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
-#viewChat:not([class*="layout-"]) > .chat-top .chat-back:hover:not(:disabled) {
-  border-color: var(--regular-chat-border);
+#viewChat > .chat-top .chat-back:hover:not(:disabled) {
+  border-color: var(--regular-chat-border, var(--line));
   background: var(--panel-2);
 }
-#viewChat:not([class*="layout-"]) > .chat-top .chat-back:active:not(:disabled) { transform: scale(0.96); }
+#viewChat > .chat-top .chat-back:active:not(:disabled) { transform: scale(0.96); }
 
-#viewChat:not([class*="layout-"]) .chat-peer-avatar .desk-avatar-box { width: 36px; height: 36px; margin-right: 10px; }
-#viewChat:not([class*="layout-"]) .chat-peer-avatar img.desk-avatar { border-width: 1px; }
-#viewChat:not([class*="layout-"]) .chat-peer-name { font-size: 15px; letter-spacing: 0; }
-#viewChat:not([class*="layout-"]) .chat-peer-status { gap: 6px; font-size: 12px; }
-#viewChat:not([class*="layout-"]) .chat-dot { width: 8px; height: 8px; }
+#viewChat .chat-peer-avatar .desk-avatar-box { width: 36px; height: 36px; margin-right: 10px; }
+#viewChat .chat-peer-avatar img.desk-avatar { border-width: 1px; }
+#viewChat .chat-peer-name { font-size: 15px; letter-spacing: 0; }
+#viewChat .chat-peer { text-align: left; }
+#viewChat .chat-peer-status { justify-content: flex-start; gap: 6px; font-size: 12px; min-width: 0; }
+#viewChat .chat-peer-status #streamState { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#viewChat .chat-dot { flex: 0 0 auto; width: 8px; height: 8px; }
 
-#viewChat:not([class*="layout-"]) .chat-top-actions { gap: 6px; }
-#viewChat:not([class*="layout-"]) .chat-top-actions button {
+#viewChat .chat-top-actions { gap: 6px; }
+#viewChat .chat-top-actions button {
   border-color: transparent;
   border-radius: 12px;
   background: transparent;
   color: var(--muted);
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
-#viewChat:not([class*="layout-"]) .chat-top-actions button:hover:not(:disabled) {
-  border-color: var(--regular-chat-border);
+#viewChat .chat-top-actions button:hover:not(:disabled) {
+  border-color: var(--regular-chat-border, var(--line));
   background: color-mix(in srgb, var(--panel-2) 76%, transparent);
   color: var(--fg);
 }
-#viewChat:not([class*="layout-"]) .chat-top-actions button.primary {
+#viewChat .chat-top-actions button.primary {
   border-color: color-mix(in srgb, var(--accent) 24%, transparent);
   background: color-mix(in srgb, var(--active-bg) 82%, transparent);
   color: var(--accent);
@@ -3266,7 +3277,8 @@ details.card > summary + * { margin-top: 8px; }
 }
 #sessionPanel .cs-employee.selected .cs-employee-select,
 #sessionPanel .cs-employee.selected > .cs-employee-head .cs-employee-toggle { color: var(--accent); }
-.cs-current { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 10px; }
+.cs-current { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 10px; visibility: hidden; }
+.cs-employee.selected .cs-current { visibility: visible; }
 #sessionPanel .cs-employee-head button {
   min-height: 40px;
   border: 0;
@@ -3438,15 +3450,15 @@ details.card > summary + * { margin-top: 8px; }
 }
 
 @media (max-width: 640px) {
-  #viewChat:not([class*="layout-"]) > .chat-top {
+  #viewChat > .chat-top {
     min-height: 54px;
     gap: 6px;
     padding-top: calc(6px + env(safe-area-inset-top));
   }
-  #viewChat:not([class*="layout-"]) .chat-peer-avatar .desk-avatar-box { width: 32px; height: 32px; margin-right: 8px; }
-  #viewChat:not([class*="layout-"]) .chat-peer-name { font-size: 14px; }
-  #viewChat:not([class*="layout-"]) .chat-top-actions { gap: 2px; }
-  #viewChat:not([class*="layout-"]) .chat-top-actions button { padding-inline: 9px; }
+  #viewChat .chat-peer-avatar .desk-avatar-box { width: 32px; height: 32px; margin-right: 8px; }
+  #viewChat .chat-peer-name { font-size: 14px; }
+  #viewChat .chat-top-actions { gap: 2px; }
+  #viewChat .chat-top-actions button { padding-inline: 9px; }
   #viewChat:not([class*="layout-"]) > .messages { padding: 16px 12px 12px; gap: 6px; }
   #viewChat:not([class*="layout-"]) > .messages .msg { padding-inline: 0; }
   #viewChat:not([class*="layout-"]) > .messages .bubble { max-width: 88%; padding: 10px 13px; }

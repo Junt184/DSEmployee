@@ -3,6 +3,10 @@ import { describe, it } from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
 import { renderControlUiScript } from '../src/web/ui.ts'
+import { CSS_SOURCE } from './console-source.ts'
+
+/** 去注释后的 CSS：`visibility: hidden` 这类断言不该被注释里的同名文字骗过。 */
+const CSS = CSS_SOURCE.replace(/\/\*[\s\S]*?\*\//g, '')
 
 const script = renderControlUiScript()
 const parsed = ts.createSourceFile('ui.js', script, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JS)
@@ -43,15 +47,40 @@ class Element {
     this.children.splice(index, 1)
   }
   setAttribute(key: string, value: string): void { this.attributes[key] = value }
+  /* 属性读写是新增的红绘去重与选中同步要用的：`renderSessions` 现在把树的内容指纹写在
+     `data-tree-signature` 上，指纹没变就只同步选中态、不重建 DOM。
+     假 DOM 缺 getAttribute 的话，这些断言会以"类型错误"的面目失败，指向完全错误的地方。 */
+  getAttribute(key: string): string | null { return this.attributes[key] ?? null }
+  removeAttribute(key: string): void { delete this.attributes[key] }
   querySelector(selector: string): Element | null {
+    return this.querySelectorAll(selector)[0] ?? null
+  }
+  /* 选中态同步要按类名批量找会话行（`list.querySelectorAll('.cs-employee')`）。
+     只支持这一种用法：以 `.` 开头的单类名选择器 —— 与其它 harness 的约定一致。 */
+  querySelectorAll(selector: string): Element[] {
+    const found: Element[] = []
     for (const child of this.children) {
-      if (child.classList.contains(selector.slice(1))) return child
-      const nested = child.querySelector(selector)
-      if (nested !== null) return nested
+      if (selector.startsWith('.') && child.classList.contains(selector.slice(1))) found.push(child)
+      found.push(...child.querySelectorAll(selector))
+    }
+    return found
+  }
+  focus(): void {}
+  /* 焦点落在列表里时 `renderSessions` 要认出"重绘后把焦点还给同一行"（键盘可达性）。
+     没有 contains 就只能整段跳过，而那正是它要守的行为。 */
+  contains(node: Element): boolean {
+    if (node === this) return true
+    return this.children.some((child) => child.contains(node))
+  }
+  closest(selector: string): Element | null {
+    /* 只需要"往上找带某个 class 的祖先"这一种用法（找会话行）。 */
+    let node: Element | null = this
+    while (node !== null) {
+      if (node.classList.contains(selector.slice(1))) return node
+      node = null
     }
     return null
   }
-  focus(): void {}
 }
 
 type Session = { sessionId: string; name: string; updatedAt?: number; archived?: boolean; archivedAtMs?: number; running?: boolean }
@@ -70,6 +99,11 @@ function harness() {
     expandedArchives: new Set<string>(), sessionArchivePending: new Map<string, Promise<boolean>>(),
     employeeSelectionVersion: 0, sessionOpenVersion: 0, subscribed: null as string | null, attachments: [],
     historySync: null, sessionEventSeqs: new Set(),
+    /* 工作台快照那批新加的 state 字段：openSession 会读它来恢复阅读位置。
+       假 DOM 的契约是"给足以让被测函数跑完的那部分状态"，所以新字段要跟着补。 */
+    chatViews: new Map<string, unknown>(), employeeDrafts: new Map<string, string>(),
+    asideCache: new Map<string, unknown>(), quadCache: new Map<string, unknown>(),
+    sessionLiveVersion: 0, workspaceAnimation: null,
   }
   for (const [id, sessions] of [['emp_a', state.sessions], ['emp_b', [{ sessionId: 'b1', name: '会话 B' }]]] as const) {
     state.employeeSessions.set(id, { sessions: [...sessions], loading: false, error: '', request: null })
@@ -82,9 +116,12 @@ function harness() {
   const messages: unknown[] = []
   const errors: unknown[] = []
   const scope = vm.createContext({
-    state, Promise, Map, Set, Date, JSON,
+    state, Promise, Map, Set, Date, JSON, setTimeout, clearTimeout,
     $: (id: string) => nodes[id] ?? null,
-    document: { createElement: (tag: string) => new Element(tag) },
+    /* activeElement 是真实浏览器里恒有的属性（哪怕没有焦点也是 body）：
+       renderSessions 现在靠它认出"重绘后把焦点还给同一行"。不建模它，
+       代码里的 `document.activeElement.classList` 会在假 DOM 上直接抛。 */
+    document: { createElement: (tag: string) => new Element(tag), activeElement: null },
     rpc: (method: string, params: Record<string, unknown>) => new Promise((resolve, reject) => calls.push({ method, params, resolve, reject })),
     officeSections: () => [{ members: state.employees }],
     LS: {}, writeLocal: () => {}, shortId: (id: string) => id,
@@ -102,10 +139,20 @@ function harness() {
     renderNormalized: (event: unknown) => messages.push(event), historyCursor: () => null,
     syncHistoryMore: () => {}, scrollMessages: () => {}, describeError: () => 'error',
     turnRunning: false, distilling: false, distillSnapshot: null, chatFollowTail: true, historyRendering: false,
+    /* 导航重构后 selectEmployee 会顺带刷新公共员工导航；工作台快照那批会记本页阅读位置。
+       两者都不是这一组要测的东西，按 harness 的惯例替身掉。 */
+    updateEmployeeNavigation: () => {}, closeSessionNavDrawer: () => {}, rememberChatView: () => {},
+    autoGrowPrompt: () => {},
+    /* 切员工时的过渡动画（工作台切换那批）：与"会话树长什么样"无关，替身掉。 */
+    animateEmployeeWorkspace: () => {},
   })
+  /* 这里的名字必须与交付脚本里真实存在的函数一一对应 —— 少一个就整份文件起不来
+     （harness 构造期就 assert）。导航重构删掉了 `isRegularSessionTree`：
+     四个岗位现在共用同一份会话树，"是不是普通会话树"这个分叉不存在了。 */
   const names = ['el', 'clear', 'pickArray', 'positionList', 'positionName', 'sessionIdOf', 'sessionTitleOf', 'latestSessionId',
-    'employeeSessionState', 'cacheEmployeeSessions', 'isRegularSessionTree', 'loadSessionTree',
+    'employeeSessionState', 'cacheEmployeeSessions', 'loadSessionTree',
     'loadSessions', 'reloadEmployeeSessions', 'renderSessions', 'appendSessionRows', 'appendSessionRow', 'renderSessionTree', 'setSessionArchived',
+    'sessionTreeSignature', 'syncSessionSelection', 'chatViewKey',
     'selectEmployee', 'createSession', 'renameSession', 'startSessionRename', 'ensureSubscribed', 'openSession',
     'sessionEventSeq', 'mergeSessionHistory', 'renderSessionEvent']
   vm.runInContext(names.map((name) => {
@@ -118,12 +165,27 @@ function harness() {
 async function flush(): Promise<void> { await new Promise<void>((resolve) => setImmediate(resolve)) }
 
 describe('普通聊天页的员工会话树', () => {
-  it('高亮与当前标识跟随所选员工，其他员工不带标识', () => {
+  it('高亮与当前标识跟随所选员工，其他员工的标识不可见也不可读', () => {
     const h = harness()
     h.scope.renderSessions()
     assert.equal(h.list.children[0]!.classList.contains('selected'), true)
     assert.equal(h.list.children[0]!.querySelector('.cs-current')!.textContent, '当前')
-    assert.equal(h.list.children[1]!.querySelector('.cs-current'), null)
+    /* 「当前」这枚标记现在是**每行都建、由 CSS 决定可不可见**
+       （`.cs-current { visibility: hidden }` + `.cs-employee.selected .cs-current { visibility: visible }`），
+       不再是"只给选中的那行建一个"。所以这里断的是**可观察的不变量**，不是 DOM 里有没有那个节点：
+         · 未选中的行绝不能把标记显示出来 —— 靠上面那条 CSS（下面单独钉住它）；
+         · 标记对读屏器一律隐藏（aria-hidden），否则每行都会被念一遍"当前"。
+       断"节点不存在"会把实现细节当成契约：换一种同样正确的写法就会假红。 */
+    assert.equal(h.list.children[1]!.classList.contains('selected'), false)
+    assert.equal(h.list.children[1]!.querySelector('.cs-current')!.getAttribute('aria-hidden'), 'true')
+    assert.ok(
+      /\.cs-employee\.selected \.cs-current \{ visibility: visible; \}/.test(CSS),
+      '只有选中的员工行才该把「当前」显示出来 —— 这条 CSS 没了，标记会挂在每一行上',
+    )
+    assert.ok(
+      /\.cs-current \{[^}]*visibility: hidden/.test(CSS),
+      '「当前」默认必须是隐藏的（否则每行都显示它）',
+    )
     h.state.selectedEmployeeId = 'emp_b'
     h.scope.renderSessions()
     assert.equal(h.list.children[0]!.classList.contains('selected'), false)
@@ -181,15 +243,22 @@ describe('普通聊天页的员工会话树', () => {
     assert.equal(h.calls.filter((call) => call.method === 'session.create').length, 1)
   })
 
-  it('秘书页和四宫格页仍显示当前员工的平铺会话', () => {
-    for (const layout of ['layout-secretary', 'layout-quad', 'layout-quad layout-quad-chat']) {
+  it('四个岗位共用同一份员工会话树（不再按 layout 分叉）', () => {
+    /* 这条**改过**：原先秘书页与四宫格走的是"当前员工的平铺会话"（没有员工分组），
+       于是同一个列表在四个岗位里有两种结构、两套渲染分支。导航重构把分叉删了 ——
+       `isRegularSessionTree()` 与那条平铺分支都不存在，四个岗位都是员工→会话两级树。
+       所以这里断的是"结构一致"，不是"某个 layout 特殊"。 */
+    for (const layout of ['', 'layout-secretary', 'layout-quad', 'layout-quad layout-quad-chat']) {
       const h = harness()
       h.chat.className = layout
       h.scope.renderSessions()
-      assert.equal(h.list.children[0]!.attributes['data-session-id'], 'a1')
-      assert.equal(h.list.querySelector('.cs-employee'), null)
+      const groups = h.list.querySelectorAll('.cs-employee')
+      assert.equal(groups.length, 2, `${layout || '(默认)'} 应当是两位员工各一个分组`)
+      assert.equal(groups[0]!.attributes['data-employee-id'], 'emp_a')
+      /* 会话行住在员工分组里，不再平铺在顶层。 */
+      assert.equal(h.list.children[0]!.attributes['data-session-id'], undefined)
       h.scope.loadSessionTree()
-      assert.equal(h.calls.length, 0)
+      assert.equal(h.calls.length, 0, '展开的员工都有缓存，不该补拉')
     }
   })
 
@@ -316,12 +385,29 @@ describe('会话归档交互', () => {
   })
 
   it('所有会话已归档时不自动打开旧记录或创建新会话', async () => {
+    /* 这条**改过**：流程从"等列表回来再决定打开哪个会话"改成了
+       "先用缓存把可读内容摆出来，再拿列表核对"（切员工不再等网络响应串起来）。
+       于是进入时**可能**先订阅缓存里的那个会话 —— 这是新流程明确接受的代价；
+       要守的不变量是**最终状态**：不留在归档会话上、不凭空新建、不自动发指令。 */
     const h = harness()
+    /* 从"没有打开任何会话"进入：这条测的是自动挑默认会话的那条路，
+       而 `selectEmployee` 对"已在同一员工同一会话"现在是空操作（省掉一次无谓的整页刷新）。 */
+    h.state.selectedSessionId = null
     const selecting = h.scope.selectEmployee('emp_a')
-    h.calls[0]!.resolve({ sessions: [{ sessionId: 'a1', name: '归档记录', archived: true }] })
+    const subscribe = h.calls.find((call) => call.method === 'session.subscribe')
+    assert.ok(subscribe !== undefined, '缓存里有会话时应当先订阅它，把内容摆出来')
+    subscribe.resolve({})
+    await flush()
+    const history = h.calls.find((call) => call.method === 'session.history')
+    if (history !== undefined) history.resolve({ events: [], hasMore: false })
+    await flush()
+    const list = h.calls.find((call) => call.method === 'session.list')
+    assert.ok(list !== undefined, '随后要用列表核对缓存是否还成立')
+    list.resolve({ sessions: [{ sessionId: 'a1', name: '归档记录', archived: true }] })
     await selecting
-    assert.equal(h.state.selectedSessionId, null)
-    assert.equal(h.calls.some(call => ['session.create', 'session.history', 'session.prompt'].includes(call.method)), false)
+    assert.equal(h.state.selectedSessionId, null, '列表确认它已归档后，必须从归档会话上退出来')
+    assert.equal(h.calls.some((call) => call.method === 'session.create'), false, '不许凭空新建会话')
+    assert.equal(h.calls.some((call) => call.method === 'session.prompt'), false, '不许自动发指令')
   })
 })
 

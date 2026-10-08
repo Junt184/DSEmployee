@@ -177,17 +177,37 @@ function noteNodeOnline(employees) {
   return flipped
 }
 
+function chatViewKey(employeeId, sessionId) {
+  return JSON.stringify([employeeId, sessionId])
+}
+
+function rememberChatView() {
+  var history = state.chatHistory
+  var box = $('messages')
+  if (history === null || history === undefined || box === null ||
+      history.employeeId !== state.selectedEmployeeId || history.sessionId !== state.selectedSessionId) return
+  var key = chatViewKey(history.employeeId, history.sessionId)
+  state.chatViews.delete(key)
+  state.chatViews.set(key, { payload: history.payload, scrollTop: box.scrollTop, following: chatFollowTail })
+  while (state.chatViews.size > 8) state.chatViews.delete(state.chatViews.keys().next().value)
+}
+
 function openSession(sessionId) {
   var employeeId = state.selectedEmployeeId
-  var sameSession = state.selectedSessionId === sessionId
+  var sameSession = state.selectedSessionId === sessionId && state.chatHistory !== null &&
+    state.chatHistory !== undefined && state.chatHistory.employeeId === employeeId
+  if (!sameSession) rememberChatView()
   var messages = $('messages')
   var previousScroll = messages === null ? 0 : messages.scrollTop
-  var cachedHistory = readCachedHistory(employeeId, sessionId)
+  var savedView = state.chatViews.get(chatViewKey(employeeId, sessionId))
+  var cachedHistory = savedView === undefined ? readCachedHistory(employeeId, sessionId) : savedView.payload
   var previousHistory = sameSession && state.chatHistory !== undefined && state.chatHistory !== null &&
     state.chatHistory.employeeId === employeeId && state.chatHistory.sessionId === sessionId
       ? state.chatHistory.payload : cachedHistory
   var selectionVersion = state.employeeSelectionVersion
   var openVersion = state.sessionOpenVersion = (state.sessionOpenVersion || 0) + 1
+  /* 本次打开已作废旧分页请求；保留消息 DOM 时也要释放旧请求占着的加载状态。 */
+  historyLoading = false
   function stillSelected() {
     return state.selectedEmployeeId === employeeId && state.selectedSessionId === sessionId &&
       state.employeeSelectionVersion === selectionVersion && state.sessionOpenVersion === openVersion
@@ -213,29 +233,39 @@ function openSession(sessionId) {
   }
   setRunning(running)
   renderSessions()
-  /* 四宫格右上那格的「会话 N · 当前：xxx」要跟着换会话走（不是四宫格时它自己会跳过） */
-  if (typeof renderQuadCells === 'function') renderQuadCells()
   syncControls()
   updateSendButton()
   updateCompactButton()
   updateDistillButton()
-  if (!sameSession) clearMessages('正在读取历史…')
+  if (!sameSession) {
+    clearMessages(cachedHistory === null ? '正在读取历史…' : cachedHistory.events.length === 0 ? '（会话暂无历史；直接输入指令即可）' : '')
+  }
   if (!sameSession && cachedHistory !== null) {
-    clearMessages('')
     historyRendering = true
     cachedHistory.events.forEach(function (entry) { renderSessionEvent(entry, false) })
     historyRendering = false
     historyHasMore = cachedHistory.hasMore === true
     historyOldestSeq = historyCursor(cachedHistory, cachedHistory.events)
     syncHistoryMore()
-    appendSystem('正在显示本机保存的记录，连接后会同步最新消息。')
-    scrollMessages()
+    if (savedView !== undefined && savedView.following !== true && messages !== null) {
+      chatFollowTail = false
+      messages.scrollTop = savedView.scrollTop
+    } else scrollMessages()
   }
+  if (sameSession) syncHistoryMore()
   state.chatHistory = { employeeId: employeeId, sessionId: sessionId,
     payload: previousHistory || { events: [], hasMore: false } }
   var sync = { employeeId: employeeId, sessionId: sessionId, version: openVersion, events: [],
     previous: previousHistory === null ? [] : previousHistory.events.filter(function (entry) { return sessionEventSeq(entry) !== null }) }
   state.historySync = sync
+  var syncStatus = $('chatSyncStatus')
+  if (syncStatus !== null) syncStatus.textContent = ''
+  /* 快速响应不闪加载字样；较慢同步只在顶栏提示，不替换已读内容。 */
+  setTimeout(function () {
+    if (stillSelected() && state.historySync === sync && syncStatus !== null) {
+      syncStatus.textContent = cachedHistory === null ? '读取历史…' : '同步中…'
+    }
+  }, 180)
   return ensureSubscribed().then(function () {
     if (!stillSelected()) return null
     return rpc('session.history', {
@@ -256,35 +286,54 @@ function openSession(sessionId) {
         var readingScroll = messages === null ? previousScroll : messages.scrollTop
         var following = chatFollowTail
         state.historySync = null
-        clearMessages('')
+        if (syncStatus !== null) syncStatus.textContent = ''
+        var rendered = state.chatHistory.payload.events
+        var unchangedPrefix = rendered.length <= records.length && rendered.every(function (entry, index) {
+          return JSON.stringify(entry) === JSON.stringify(records[index].entry)
+        })
+        var start = unchangedPrefix ? rendered.length : 0
+        if (!unchangedPrefix) clearMessages('')
+        if (messages !== null) {
+          var empty = messages.querySelector('.empty')
+          if (empty !== null) messages.removeChild(empty)
+          var notice = messages.querySelector('.history-error')
+          if (notice !== null) messages.removeChild(notice)
+        }
         historyRendering = true
         if (records.length === 0) {
           clearMessages('（会话暂无历史；直接输入指令即可）')
         } else {
-          records.forEach(function (record) {
+          records.slice(start).forEach(function (record) {
             renderSessionEvent(record.entry, record.live)
           })
         }
         historyRendering = false
         /* 翻页入口：hasMore 且拿到游标（契约 oldestSeq，或首条 history 行的 seq）
            才亮「加载更早记录」按钮；旧节点只回 hasMore 时退化为原来的纯文本提示 */
-        historyHasMore = payload !== null && typeof payload === 'object' && payload.hasMore === true
+        var previousOldest = previousHistory === null ? null : historyCursor(previousHistory, previousHistory.events)
+        var fetchedOldest = historyCursor(payload, events)
+        /* 已翻到的更早记录属于本次阅读；只刷新最近一页时沿用更早那页的边界。 */
+        historyHasMore = previousOldest !== null && fetchedOldest !== null && previousOldest < fetchedOldest
+          ? previousHistory.hasMore === true
+          : payload !== null && typeof payload === 'object' && payload.hasMore === true
         var mergedEvents = records.map(function (record) { return record.entry })
         historyOldestSeq = historyCursor({}, mergedEvents)
         if (historyOldestSeq === null) historyOldestSeq = historyCursor(payload, events)
         state.chatHistory.payload = { events: mergedEvents, hasMore: historyHasMore, oldestSeq: historyOldestSeq }
         rememberHistory(employeeId, sessionId, state.chatHistory.payload)
-        if (historyHasMore && historyOldestSeq !== null) syncHistoryMore()
-        else if (historyHasMore) appendSystem('（还有更早的历史未加载）')
-        if (sameSession && !following && messages !== null) {
+        syncHistoryMore()
+        if (historyHasMore && historyOldestSeq === null && (!unchangedPrefix || start === 0)) appendSystem('（还有更早的历史未加载）')
+        if (!following && messages !== null) {
           chatFollowTail = false
           messages.scrollTop = readingScroll
         } else scrollMessages()
+        rememberChatView()
         return null
       })
       .catch(function (error) {
         if (!stillSelected()) return null
         state.historySync = null
+        if (syncStatus !== null) syncStatus.textContent = '同步失败'
         historyRendering = false
         reportRpcError('session.history', error)
         /* 保留旧消息与请求期间的新输出；失败提示有就地重试入口。 */
@@ -1815,6 +1864,7 @@ function onSessionEvent(payload) {
   var isSelectedSession = state.selectedSessionId !== null && (sessionId === '' || sessionId === state.selectedSessionId)
 
   if (inChatWith && isSelectedSession) {
+    state.sessionLiveVersion = (state.sessionLiveVersion || 0) + 1
     /* 任何事件都算"员工还在动"：看门狗据此判断是否卡住 */
     turnLastEventAt = Date.now()
     turnStallWarned = false

@@ -227,7 +227,16 @@ describe('窄屏改动不许碰桌面端', () => {
 
 const phone = media.filter((entry) => entry.query.startsWith('(max-width: 640px)'))
 const phoneCss = phone.map((entry) => entry.body).join('\n')
-const wideChat = media.find((entry) => entry.query.startsWith('(min-width: 1200px)'))
+/**
+ * ≥1200px 的**全部**规则体。
+ *
+ * 为什么从"取第一块"改成"全都要"：导航重构之后宽屏规则拆成了两块 ——
+ * 外层壳（`#viewChatShell`：导航 + 工作区）与工作区内部（`#viewChat`：对话 + 右栏）。
+ * 只取第一块会让"右栏在宽屏怎么摆"这类断言凭空失败（规则明明在，只是搬到了下一块），
+ * 而报出来的话是"宽屏断点里没有 #employeeAside 规则"——指向完全错误的地方。
+ */
+const wideAll = media.filter((entry) => entry.query.startsWith('(min-width: 1200px)'))
+const wideChat = { body: wideAll.map((entry) => entry.body).join('\n') }
 
 describe('聊天输入区：手机（≤640px）', () => {
   it('输入框字号 ≥16px —— iOS 低于它会在聚焦时把整页放大且不还原', () => {
@@ -363,8 +372,15 @@ describe('工具键搬家（窄屏进抽屉 / 宽屏回输入区）', () => {
 })
 
 describe('宽屏（≥1200px）聊天三栏', () => {
-  it('存在宽屏断点，且是「左会话 + 中对话 + 右上下文」三栏网格', () => {
-    assert.ok(wideChat !== undefined, '没有 (min-width: 1200px) 断点')
+  it('宽屏是「导航常驻 + 对话 + 右上下文」：外壳两列，工作区内部两列', () => {
+    /* 导航重构把原来的一张三栏网格拆成了两层：外层壳管「导航 | 工作区」，
+       工作区内部管「对话 | 右栏」。两个层次各有各的列定义，所以这里分别断。 */
+    const shell = ruleBody(wideChat.body, '#viewChatShell {')
+    assert.ok(shell !== undefined, '宽屏断点里没有外壳（导航 + 工作区）的列定义')
+    const shellTracks = String(declaration(shell, 'grid-template-columns'))
+      .replace(/\([^)]*\)/g, 'X').trim().split(/\s+/)
+    assert.equal(shellTracks.length, 2, `外壳应当是两列（导航 + 工作区），实际 "${shellTracks}"`)
+
     const body = ruleBody(wideChat.body, '#viewChat {')
     assert.ok(body !== undefined, '宽屏断点里没有 #viewChat 布局规则')
     assert.equal(declaration(body, 'display'), 'grid')
@@ -372,22 +388,27 @@ describe('宽屏（≥1200px）聊天三栏', () => {
     /* 先把 minmax(…) 这类函数整体收成一个词再数轨道 —— 直接按空格切会把
        `minmax(220px, 260px)` 逗号后的空格也算成一条轨道。 */
     const tracks = columns.replace(/\([^)]*\)/g, 'X').trim().split(/\s+/)
-    assert.equal(tracks.length, 3, `不是三列（实际 "${columns}"）`)
+    assert.equal(tracks.length, 2, `工作区是「对话 + 右栏」两列（实际 "${columns}"）`)
     const rows = areaRows(body)
-    for (const area of ['panel', 'top', 'messages', 'composer', 'aside']) {
+    for (const area of ['top', 'messages', 'composer', 'aside']) {
       assert.ok(rows.join(' ').includes(area), `区域 ${area} 没有出现在 grid-template-areas 里`)
     }
+    /* `panel` 这个区域**不该**再出现在工作区里：会话面板已经搬去外壳的第一列。 */
+    assert.ok(!rows.join(' ').includes('panel'), '工作区里还留着 panel 区域 —— 会话面板又分叉出一份？')
   })
 
-  it('会话列表在宽屏常驻（压过 .hidden），「会话」开关收起', () => {
-    assert.ok(wideChat !== undefined)
-    const panel = ruleBody(wideChat.body, '#sessionPanel {')
-    assert.ok(panel !== undefined, '宽屏断点里没有 #sessionPanel 规则')
-    assert.equal(declaration(panel, 'display'), 'flex !important', '.hidden 用的是 !important，这里必须同样 !important 才能常驻')
-    assert.equal(declaration(panel, 'grid-area'), 'panel')
-    const toggle = ruleBody(wideChat.body, '#btnChatSessions {')
-    assert.ok(toggle !== undefined, '宽屏下「会话」按钮应当收起来（点它不会有反应）')
-    assert.equal(declaration(toggle, 'display'), 'none')
+  it('宽屏时导航是第一列，工作区在第二列；收起后靠窄栏回来', () => {
+    const panel = ruleBody(wideChat.body, '#viewChatShell > #sessionPanel {')
+    assert.ok(panel !== undefined, '宽屏断点里没有「面板进外壳第一列」的规则')
+    assert.equal(declaration(panel, 'grid-column'), '1')
+    const workspace = ruleBody(wideChat.body, '#viewChatShell > #viewChat {')
+    assert.ok(workspace !== undefined, '宽屏断点里没有「工作区进第二列」的规则')
+    assert.equal(declaration(workspace, 'grid-column'), '2')
+    /* 收起态下的入口是窄栏（`.chat-nav-rail`），不是顶栏那个「会话」按钮 ——
+       展开时窄栏藏着，收起时才放出来（见 test/ui-panel.test.ts 的那一对）。 */
+    const rail = ruleBody(wideChat.body, '#viewChatShell:not(.panel-collapsed) > .chat-nav-rail {')
+    assert.ok(rail !== undefined, '缺少"展开时藏窄栏"的规则')
+    assert.equal(declaration(rail, 'display'), 'none')
   })
 
   it('右栏：窄屏隐藏、宽屏显示，并且不再受 920px 封顶', () => {

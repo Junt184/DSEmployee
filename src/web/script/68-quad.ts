@@ -80,7 +80,6 @@ function applyQuadShell(employee) {
   if (state.quad === null || typeof state.quad !== 'object') resetQuadState('')
   if (state.quad.employeeId !== employeeId) {
     resetQuadState(employeeId)
-    clearQuadCells()
   }
   applyQuadDrawer(state.quad.drawer)
   applyQuadSkin(state.quad.skin)
@@ -89,7 +88,7 @@ function applyQuadShell(employee) {
   loadQuadFiles(employeeId)
 }
 
-/** 退出四宫格：把状态清干净（下次进来不该看见上次的数字） */
+/** 退出四宫格：移除当前 DOM；各员工自己的快照留待下次进入时恢复。 */
 function leaveQuadShell() {
   if (state.quad === null || typeof state.quad !== 'object' || state.quad.employeeId === '') return
   clearQuadCells()
@@ -98,6 +97,16 @@ function leaveQuadShell() {
 }
 
 function resetQuadState(employeeId) {
+  if (state.quad && state.quad.employeeId) {
+    state.quadCache.delete(state.quad.employeeId)
+    state.quadCache.set(state.quad.employeeId, state.quad)
+    while (state.quadCache.size > 16) state.quadCache.delete(state.quadCache.keys().next().value)
+  }
+  var cached = state.quadCache.get(employeeId)
+  if (cached !== undefined) {
+    state.quad = Object.assign({}, cached, { renderPending: false, fileRequest: null, cached: true, skin: readLocal(QUAD_SKIN_KEY) === 'neon' ? 'neon' : 'day' })
+    return
+  }
   var drawer = readLocal(QUAD_DRAWER_KEY)
   state.quad = {
     employeeId: employeeId,
@@ -229,6 +238,7 @@ function renderQuadCells() {
      该有不同密度（工具条只有一行高）。面板据此换紧凑形态，而不是复制一个面板。 */
   if (cells.top !== null && ids.top.length > 0) renderPanelsInto(cells.top, withCell(ctx, 'top'), ids.top)
   if (cells.tl !== null) {
+    if (state.quad.cached === true) cells.tl.appendChild(el('div', 'aside-note', '上次读取的工作区信息 · 正在更新…'))
     if (ids.tl.length === 0) cells.tl.appendChild(quadEmptyNote('tl', '左上 · 当前目标'))
     else renderPanelsInto(cells.tl, withCell(ctx, 'tl'), ids.tl)
   }
@@ -337,13 +347,21 @@ function loadQuadFiles(employeeId) {
   if (employee === null) return
   var needs = quadFileNeeds(positionCellsOf(employee))
   if (!needs.scope && !needs.board && !needs.monitor && !needs.findings && !needs.incident && !needs.actions && !needs.incidents) return
+  var snapshot = state.quad
+  if (snapshot.fileRequest) return snapshot.fileRequest
   var jobs = []
   var store = function (key, job) {
     jobs.push(
       job.then(function (result) {
-        if (state.quad.employeeId !== employeeId) return
-        state.quad[key] = result
-        renderQuadCells()
+        if (state.quad !== snapshot || state.selectedEmployeeId !== employeeId) return
+        if (JSON.stringify(snapshot[key]) === JSON.stringify(result)) return
+        snapshot[key] = result
+        if (snapshot.renderPending) return
+        snapshot.renderPending = true
+        requestAnimationFrame(function () {
+          snapshot.renderPending = false
+          if (state.quad === snapshot && state.selectedEmployeeId === employeeId) renderQuadCells()
+        })
       }),
     )
   }
@@ -356,7 +374,15 @@ function loadQuadFiles(employeeId) {
   if (needs.incident) store('incidentResult', readWorkspaceJson(employeeId, INCIDENT_PATH))
   if (needs.actions) store('actionsResult', readWorkspaceJson(employeeId, ACTIONS_PATH))
   if (needs.incidents) store('incidentsResult', readWorkspaceJson(employeeId, INCIDENTS_PATH))
-  void Promise.all(jobs)
+  snapshot.fileRequest = Promise.all(jobs).then(function () {
+    snapshot.fileRequest = null
+    if (state.quad !== snapshot || state.selectedEmployeeId !== employeeId) return
+    if (snapshot.cached) {
+      snapshot.cached = false
+      if (!snapshot.renderPending) renderQuadCells()
+    }
+  })
+  return snapshot.fileRequest
 }
 
 /**

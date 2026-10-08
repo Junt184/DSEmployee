@@ -129,8 +129,12 @@ describe('右栏折叠：各档都能收，窄屏不给按钮', () => {
     const wideBody = ruleBody(wideCss, '#viewChat.aside-collapsed {')
     assert.ok(wideBody !== undefined, '宽屏缺少折叠后的列定义')
     const wideColumns = String(declaration(wideBody, 'grid-template-columns'))
-    assert.ok(wideColumns.trim().endsWith(' 0'), `宽屏折叠后右栏轨道应为 0，实际 "${wideColumns}"`)
-    assert.ok(wideColumns.includes('260px'), '宽屏折叠后左栏仍要常驻')
+    const wideTracks = wideColumns.trim().split(/\s+(?![^(]*\))/)
+    assert.equal(wideTracks.length, 2, `收起右栏后仍是两轨（对话 + 右栏），实际 "${wideColumns}"`)
+    assert.equal(wideTracks[1], '0', `宽屏折叠后右栏轨道应为 0，实际 "${wideColumns}"`)
+    /* 会话面板已经搬去外层外壳（`#viewChatShell` 的第一列），所以这里盯的是
+       **对话列还在**：收右栏不该把对话一起收掉。 */
+    assert.ok(String(wideTracks[0]).includes('1fr'), `宽屏折叠后对话列必须还在，实际 "${wideColumns}"`)
 
     const midBody = ruleBody(midCss, '#viewChat.aside-collapsed {')
     assert.ok(midBody !== undefined, '中档缺少折叠后的列定义')

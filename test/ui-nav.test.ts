@@ -87,7 +87,9 @@ const EXPECTED_IDS: Record<string, string> = {
   devices: 'viewDevices',
   health: 'viewHealth',
   llm: 'viewLlm',
-  chat: 'viewChat',
+  /* 导航重构后，chat 这一页的容器是**外壳** `#viewChatShell`（窄栏 + 面板 + 工作区），
+     `#viewChat` 变成它里面的工作区。视图表指向外壳，这一份预期也要跟着走。 */
+  chat: 'viewChatShell',
 }
 
 interface FakeNode {
@@ -200,6 +202,12 @@ function makeHarness(): Harness {
     loadNodePermissions: (): void => void loaded.push('llm.nodePermissions'),
     renderLlmConfig: (): void => void loaded.push('llm'),
     configEmployee: (): null => null,
+    /* 切走某一页时要收回窄屏的临时导航抽屉（导航重构加的）。
+       它不是这一组要测的"进入某页拉什么数据"，替身掉。 */
+    closeSessionNavDrawer: (): void => {},
+    /* 切回办公区时重画工位（新的 office loader 用它在切换后更新当前员工高亮）。
+       这一组测的是"视图表 ↔ 容器 ↔ 拉数"，工位怎么画不在范围内。 */
+    renderEmployees: (): void => {},
   })
   vm.runInContext(
     [
@@ -480,12 +488,31 @@ describe('交付脚本与整页仍是自洽的', () => {
   it('每个视图容器都是 main.grid 里的 .col，且只有办公区初始可见', () => {
     const main = PAGE.slice(PAGE.indexOf('<main class="grid">'), PAGE.indexOf('</main>'))
     for (const id of Object.values(EXPECTED_IDS)) {
-      if (id === 'viewChat') continue
+      /* 对话页是**刻意的例外**：它是铺满视口的独立房间（`#viewChatShell` 是
+         `position: fixed; inset: 0` 的网格外壳 —— 员工导航常驻在它左边），
+         不再是 main.grid 里的一列。见下面那条"必须有返回入口"。 */
+      if (id === 'viewChatShell') continue
       const at = main.indexOf(`id="${id}"`)
       assert.ok(at >= 0, `${id} 不在 main.grid 里`)
       const openTag = main.slice(main.lastIndexOf('<section', at), main.indexOf('>', at))
       assert.ok(openTag.includes('class="col'), `${id} 不是 .col —— 卡片间距会不对`)
       assert.equal(openTag.includes('hidden'), id !== 'viewOffice', `${id} 的初始可见性不对`)
     }
+  })
+
+  it('对话页铺满视口时，它自己必须带返回办公区的入口（否则进去就出不来）', () => {
+    /* 为什么单列一条：`#viewChatShell` 盖住整屏 = 连**标签条**都盖住了。
+       所以"返回"这件事不能再指望上面的标签条，只能在对话页自己的顶栏里。
+       这条断了，用户进对话页后就只剩浏览器后退键能出去。 */
+    const shellAt = PAGE.indexOf('id="viewChatShell"')
+    assert.ok(shellAt >= 0, '找不到对话页外壳')
+    /* 切到外壳开始处一直到 main 结束：`viewLlm` 在外壳**之前**，拿它当右边界会切出空串
+       （第一版就是这么写的，于是这条断言永远失败）。 */
+    const shell = PAGE.slice(shellAt, PAGE.indexOf('</main>'))
+    assert.ok(shell.includes('id="btnBackOffice"'), '对话页必须有自己的返回办公区按钮')
+    assert.ok(
+      /#viewChatShell \{[^}]*position:\s*fixed/.test(CSS_SOURCE.replace(/\/\*[\s\S]*?\*\//g, '')),
+      '外壳的定位方式变了（不再是铺满视口的房间）—— 那这条"必须有返回入口"的理由也要重新审',
+    )
   })
 })

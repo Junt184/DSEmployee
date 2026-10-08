@@ -310,6 +310,10 @@ function makeHarness(
     'var CONCLUSION_STAMP_RE = /<!--\\s*更新于\\s*(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}:\\d{2})/',
     'var CONCLUSION_STALE_DAYS = 7',
     'var secretaryState = { employeeId: "", text: null, stamp: "", error: "", missing: false, loaded: false, open: false }',
+    /* 打开看板 / 输入聚焦时要收回窄屏的临时导航抽屉（导航重构后归公共导航管）。
+       它与秘书页布局无关，但**真源码里会调到它** —— 不替身就是 ReferenceError，
+       而报出来的错完全指不到这里。 */
+    'function closeSessionNavDrawer() {}',
   ].join('\n')
   const names = Object.keys(scope)
   const factory = new Function(
@@ -348,7 +352,12 @@ describe('外壳默认关闭：别的岗位这一页不许变样', () => {
     for (const id of ['secretaryStage', 'btnBoard', 'boardSheet']) {
       assert.ok(MARKUP.includes(`id="${id}"`), `标记里缺 ${id}`)
     }
-    assert.ok(MARKUP.includes('id="btnChatSessions" class="ghost" aria-haspopup="true" aria-expanded="false" aria-controls="sessionPanel"'), '会话按钮缺少下拉菜单无障碍状态')
+    /* 会话开关搬到了公共导航的窄栏里（`chat-nav-open`），不再带 aria-haspopup ——
+       它不是"弹出菜单"，而是"打开员工导航"这个抽屉/面板开关，靠 aria-expanded + aria-controls 表达。 */
+    assert.ok(
+      MARKUP.includes('id="btnChatSessions" class="ghost chat-nav-open" type="button" aria-expanded="false" aria-controls="sessionPanel"'),
+      '会话按钮缺少无障碍状态（打开/收起 + 它控制哪一块）',
+    )
     assert.ok(/\.secretary-stage, \.board-sheet \{ display: none; \}/.test(CSS), '外壳元素没有默认隐藏')
     assert.ok(/\.board-pull \{ display: none; \}/.test(CSS), '下拉箭头没有默认隐藏')
   })
@@ -368,7 +377,7 @@ describe('外壳默认关闭：别的岗位这一页不许变样', () => {
     assert.ok(desktopAt > 0, '缺少秘书简报桌面断点')
     const desktop = CSS.slice(desktopAt, desktopAt + 600)
     assert.ok(/grid-column:\s*2/.test(desktop), '桌面端简报应当只覆盖右侧对话列')
-    assert.ok(/grid-row:\s*1 \/ -1/.test(desktop), '桌面端简报应当纵跨右侧整列')
+    assert.ok(/grid-row:\s*2 \/ -1/.test(desktop), '桌面端简报应当从第二行覆盖右侧对话，保留公共顶栏')
     assert.ok(/\.board-paper \{[^}]*background:\s*#fffdf8/.test(CSS), '简报应当有独立的暖白纸面')
     assert.ok(/\.board-sheet\.open \.board-paper/.test(CSS), '纸面缺少随下拉进入的轻过渡')
   })
@@ -449,14 +458,19 @@ describe('外壳默认关闭：别的岗位这一页不许变样', () => {
     }
   })
 
-  it('会话栏是右侧对话上方的独立下拉区：展开时挤压对话，不遮挡气泡和立绘', () => {
-    const rule = /#viewChat\.layout-secretary > #sessionPanel \{([^}]*)\}/.exec(CSS)?.[1] ?? ''
-    assert.ok(rule !== '', '秘书页里找不到会话栏的规则')
-    assert.ok(/grid-area:\s*session/.test(rule), '会话栏应当拥有独立的 session 网格行：' + rule)
-    assert.ok(/max-height:\s*min\(30vh, 300px\)/.test(rule), '会话列表要限制高度，不能把对话挤没')
-    assert.ok(/overflow-y:\s*auto/.test(rule), '会话过多时应在下拉区内部滚动')
-    assert.ok(!/z-index:\s*\d/.test(rule), '独立网格行不应靠 z-index 覆盖消息')
-    assert.ok(!/grid-area:\s*unset/.test(CSS.slice(CSS.indexOf('#viewChat.layout-secretary > #sessionPanel'))), '又写回 unset 了')
+  it('秘书页不再自己养一份会话栏：员工导航由公共外壳负责', () => {
+    /* 这条**改过**。原来秘书页把 `#sessionPanel` 重摆成"对话上方的一条下拉带"
+       （独立的 session 网格行、max-height 限制、自己滚）—— 四宫格右上角也有一份类似的。
+       导航重构把员工与会话收进公共外壳 `#viewChatShell`：四个岗位共用一份，
+       所以秘书页的网格里**不该**再有 `session` 区域，也不该再给 `#sessionPanel` 写规则。
+       出现任何一条都说明又长出了第二份实现（那正是"两处各自维护展开状态"的老问题）。 */
+    assert.ok(
+      !/#viewChat\.layout-secretary[^{]*#sessionPanel/.test(CSS),
+      '秘书页里还在给会话面板写规则 —— 员工导航应当只由公共外壳管',
+    )
+    const grid = /#viewChat\.layout-secretary \{([^}]*)\}/.exec(CSS)?.[1] ?? ''
+    assert.ok(grid !== '', '找不到秘书页的网格规则')
+    assert.ok(!/grid-template-areas[^;]*session/.test(grid), '秘书页网格里还留着 session 区域：' + grid)
   })
 
   it('手机 ≤640px：立绘是独立停靠舞台，不再和输入框共格', () => {
@@ -465,9 +479,11 @@ describe('外壳默认关闭：别的岗位这一页不许变样', () => {
     const mobileAt = CSS.indexOf('@media (max-width: 640px),', secretaryAt)
     assert.ok(mobileAt > secretaryAt, '秘书页缺少 ≤640px 手机断点')
     const mobile = CSS.slice(mobileAt, CSS.indexOf('@media (prefers-reduced-motion: reduce)', mobileAt))
+    /* 会话那一行没了（员工导航在公共外壳里，不占工作区的行）：
+       手机上的秘书页现在是「顶栏→结论→立绘→消息→输入」。 */
     assert.ok(
-      /grid-template-areas:\s*"top"\s*"session"\s*"pull"\s*"stage"\s*"messages"\s*"composer"/.test(mobile),
-      '手机应当按「顶栏→会话→结论→立绘→消息→输入」排列',
+      /grid-template-areas:\s*"top"\s*"pull"\s*"stage"\s*"messages"\s*"composer"/.test(mobile),
+      '手机应当按「顶栏→结论→立绘→消息→输入」排列',
     )
     const stage = /#viewChat\.layout-secretary > \.secretary-stage \{([^}]*)\}/.exec(mobile)?.[1] ?? ''
     assert.ok(/grid-area:\s*stage/.test(stage), '手机立绘必须进入独立 stage 行')
@@ -516,7 +532,7 @@ describe('外壳默认关闭：别的岗位这一页不许变样', () => {
       '秘书页把顶栏隐掉了 —— 返回按钮跟着消失',
     )
     const secretary = CSS.slice(CSS.indexOf('#viewChat.layout-secretary {'))
-    assert.ok(/grid-template-areas:\s*"stage top"/.test(secretary), '顶栏应当在秘书页的第一行')
+    assert.ok(/grid-template-areas:\s*"top top"/.test(secretary), '顶栏应当独占秘书页的第一行，跨岗位位置保持一致')
     assert.ok(
       /layout-secretary > \.chat-top #btnAside \{ display: none; \}/.test(CSS),
       '秘书页收起右栏后，"上下文"开关是死键，应当藏起来',
@@ -896,11 +912,41 @@ describe('markdown 标题（秘书页的主要内容就是它）', () => {
 })
 
 describe('接线：不调 applyPositionShell 就等于没做这一页', () => {
-  it('进对话页（selectEmployee）时应用外壳', () => {
-    assert.ok(
-      SCRIPT.includes('applyPositionShell(employeeById(employeeId))'),
-      'selectEmployee 没有应用岗位外壳 —— 配置了秘书页也不会生效',
-    )
+  it('进对话页（selectEmployee → setView）时只应用一次当前员工的外壳', async () => {
+    const employee = { id: 'emp_sec', name: '浅夏', position: 'pos_sec', nodeOnline: true }
+    const secretary = makeHarness({ employee, positions: [{ id: 'pos_sec', layout: 'secretary' }] })
+    const scope = vm.createContext({
+      document: { getElementById: () => null },
+      location: { host: 'test.local', search: '' }, navigator: {}, window: {},
+      localStorage: { getItem: () => null, setItem: () => {} },
+      setTimeout: () => 1, clearTimeout: () => {}, URL,
+    })
+    vm.runInContext(SCRIPT.replace(/\ninit\(\)\s*$/, ''), scope)
+    /* 外壳与路由用真函数；网络和聊天控件在此例中不参与布局验证。 */
+    for (const name of [
+      'rememberChatView', 'clearUnread', 'bindChatUi', 'closeSessionNavDrawer', 'renderSessions',
+      'setRunning', 'updateEffectivePreset', 'autoGrowPrompt', 'syncControls', 'updateSendButton',
+      'updateCompactButton', 'updateDistillButton', 'loadSessionTree', 'updateChatHeader',
+    ]) scope[name] = () => {}
+    scope.loadEmployeeAside = () => Promise.resolve()
+    scope.loadSessions = () => Promise.resolve([])
+    scope.openSession = (id: string) => {
+      scope.state.selectedSessionId = id
+      return Promise.resolve()
+    }
+    const applied: unknown[] = []
+    scope.applyPositionShell = (selected: unknown) => {
+      applied.push(selected)
+      secretary.api.applyPositionShell(selected)
+    }
+    Object.assign(scope.state, { phase: 'ready', view: 'office', employees: [employee] })
+    await scope.selectEmployee(employee.id, { sessionId: 'sec_1' })
+    assert.equal(scope.state.view, 'chat')
+    assert.equal(applied.length, 1, '外壳应由 setView 统一应用，不再重复应用')
+    assert.equal(applied[0], scope.state.employees[0], '应使用当前选中的员工')
+    assert.equal(secretary.nodes['viewChat']?.classList.contains('layout-secretary'), true)
+    assert.equal(secretary.nodes['secretaryStage']?.classList.contains('hidden'), false)
+    assert.equal(secretary.nodes['btnBoard']?.classList.contains('hidden'), false)
   })
 
   it('岗位目录刷新后重新应用（改配置不必重进页面）', () => {

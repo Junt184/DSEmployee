@@ -206,6 +206,7 @@ function describeError(error) {
   if (error === null || error === undefined) return '未知错误'
   if (typeof error === 'string') return error
   if (typeof error.message === 'string' && error.message !== '') return error.message
+  if (typeof error.code === 'string' && error.code !== '') return error.code
   if (typeof error.name === 'string' && error.name !== '') return error.name
   return String(error)
 }

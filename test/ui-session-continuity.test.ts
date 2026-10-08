@@ -347,6 +347,49 @@ describe('历史、实时输出与阅读位置', () => {
 })
 
 describe('浏览器历史副本', () => {
+  it('只有本机会话记忆、没有列表或历史副本时，离线刷新仍能接回会话并排队发送', async () => {
+    const h = harness(new Map([['dse.lastSessions', JSON.stringify({ emp_a: 'a1' })]]))
+    h.state.employees = [{ ...employees[0], nodeOnline: false }]
+    h.nodes['promptInput']!.value = '节点上线后继续处理'
+    const selection = h.scope.selectEmployee('emp_a')
+    assert.equal(h.state.selectedSessionId, 'a1')
+    h.pending('session.list').reject({ code: 'node-offline' })
+    h.pending('session.subscribe').resolve({})
+    await flush()
+    h.pending('session.history').reject({ code: 'node-offline' })
+    await selection
+    assert.equal(h.state.selectedSessionId, 'a1')
+    assert.equal(h.nodes['btnSend']!.disabled, false, '历史不可读不能堵住离线排队入口')
+    assert.equal(h.calls.some((call) => call.method === 'session.create'), false)
+
+    const sending = h.scope.deliverPrompt(h.nodes['promptInput']!.value, [], null)
+    await flush()
+    const prompt = h.pending('session.prompt')
+    assert.equal(prompt.params.employeeId, 'emp_a')
+    assert.equal(prompt.params.sessionId, 'a1')
+    assert.equal(prompt.params.mode, 'queue')
+    prompt.resolve({ queued: true, queueLength: 1 })
+    await sending
+    assert.match(h.nodes['messages']!.textContent, /已排入队列/)
+  })
+
+  it('在线且本机列表已知为空时，不先复活旧会话，而是打开服务端返回的有效会话', async () => {
+    const h = harness(new Map([['dse.lastSessions', JSON.stringify({ emp_a: 'deleted' })]]))
+    h.scope.rememberSessionList('emp_a', [])
+    const selection = h.scope.selectEmployee('emp_a')
+    assert.equal(h.state.selectedSessionId, null)
+    assert.equal(h.calls.some((call) => call.method === 'session.subscribe'), false)
+    h.pending('session.list').resolve({ sessions: [{ sessionId: 'active', updatedAt: 1 }] })
+    await flush()
+    assert.equal(h.pending('session.subscribe').params.sessionId, 'active')
+    h.pending('session.subscribe').resolve({})
+    await flush()
+    h.pending('session.history').resolve({ events: [], hasMore: false })
+    await selection
+    assert.equal(h.state.selectedSessionId, 'active')
+    assert.equal(h.calls.some((call) => call.params.sessionId === 'deleted'), false)
+  })
+
   it('刷新后节点离线仍能显示之前读过的消息，失败也不会抹掉缓存', async () => {
     const original = harness()
     original.scope.rememberSession('emp_a', 'a1')
@@ -444,6 +487,13 @@ describe('发送回执与附件的会话归属', () => {
 })
 
 describe('回合故障的来源与发生时间', () => {
+  it('没有 message 时显示错误 code，保留 message 优先和 name 兜底', () => {
+    const h = harness()
+    assert.equal(h.scope.describeError({ code: 'timeout' }), 'timeout')
+    assert.equal(h.scope.describeError({ message: '请求超时', code: 'timeout' }), '请求超时')
+    assert.equal(h.scope.describeError({ code: 'timeout', name: 'Error' }), 'timeout')
+    assert.equal(h.scope.describeError({ name: 'AbortError' }), 'AbortError')
+  })
   const atMs = 1790985637372
   function failedEvent(code = 'PI_AI_ERROR', message = 'The service is temporarily unavailable. Please retry later.') {
     return { event: { seq: 4694, time: atMs, type: 'turn/end', data: {
