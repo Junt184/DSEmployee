@@ -797,8 +797,11 @@ async function runPairing(argv: string[]): Promise<number> {
         store.root,
         sub === 'status' ? 'pairing.window' : 'pairing.window.set',
         sub === 'status' ? {} : { open: sub === 'open', ...(openMinutes === undefined ? {} : { minutes: openMinutes }) },
-      ) as { open: boolean; untilMs?: number; pairedCount: number; mode: string }
-      process.stdout.write(`\n${describePairingWindow(result)}\n\n`)
+      ) as { open: boolean; untilMs?: number; pairedCount: number; mode: string; approval?: string }
+      /* 进门方式也是这张卡片的一半状态：只报窗口不报它，用户会以为"窗口开着就能进"，
+         而实际上还要看是只认配对码还是也允许人工批准（见 store.ts 的字段注释）。 */
+      const approvalLine = result.approval === undefined ? '' : `\n${describeApprovalMode(result.approval)}`
+      process.stdout.write(`\n${describePairingWindow(result)}${approvalLine}\n\n`)
       if (sub === 'open') {
         process.stdout.write('新设备现在可以打开控制台输入配对码了。用完记得 `dse pairing close`。\n')
       }
