@@ -85,7 +85,14 @@ class Element {
 
 type Session = { sessionId: string; name: string; updatedAt?: number; archived?: boolean; archivedAtMs?: number; running?: boolean }
 type Entry = { sessions: Session[] | null; loading: boolean; error: string; request: Promise<Session[]> | null }
-type Call = { method: string; params: Record<string, unknown>; resolve(value: unknown): void; reject(error: unknown): void }
+type Call = {
+  method: string
+  params: Record<string, unknown>
+  /** 已经 resolve/reject 过 —— 用来结清残留的在途调用（见 settleAll） */
+  settled: boolean
+  resolve(value: unknown): void
+  reject(error: unknown): void
+}
 
 function harness() {
   const state = {
@@ -108,11 +115,14 @@ function harness() {
   for (const [id, sessions] of [['emp_a', state.sessions], ['emp_b', [{ sessionId: 'b1', name: '会话 B' }]]] as const) {
     state.employeeSessions.set(id, { sessions: [...sessions], loading: false, error: '', request: null })
   }
+  const local = new Map<string, string>()
   const list = new Element('ul')
   const chat = new Element()
   const title = new Element('input')
-  const nodes: Record<string, Element> = { sessionList: list, viewChat: chat, newSessionTitle: title }
+  const preset = new Element('input')
+  const nodes: Record<string, Element> = { sessionList: list, viewChat: chat, newSessionTitle: title, presetInput: preset }
   const calls: Call[] = []
+  const toasts: string[] = []
   const messages: unknown[] = []
   const errors: unknown[] = []
   const scope = vm.createContext({
@@ -122,10 +132,25 @@ function harness() {
        renderSessions 现在靠它认出"重绘后把焦点还给同一行"。不建模它，
        代码里的 `document.activeElement.classList` 会在假 DOM 上直接抛。 */
     document: { createElement: (tag: string) => new Element(tag), activeElement: null },
-    rpc: (method: string, params: Record<string, unknown>) => new Promise((resolve, reject) => calls.push({ method, params, resolve, reject })),
+    rpc: (method: string, params: Record<string, unknown>) => new Promise((resolve, reject) => {
+      const call: Call = {
+        method, params, settled: false,
+        resolve: (value: unknown) => { call.settled = true; resolve(value) },
+        reject: (error: unknown) => { call.settled = true; reject(error) },
+      }
+      calls.push(call)
+    }),
     officeSections: () => [{ members: state.employees }],
-    LS: {}, writeLocal: () => {}, shortId: (id: string) => id,
-    pushRaw: () => {}, toast: () => {}, reportRpcError: (...args: unknown[]) => errors.push(args),
+    LS: { preset: 'dse.agentPreset' }, shortId: (id: string) => id,
+    pushRaw: () => {}, toast: (message: string) => void toasts.push(message),
+    reportRpcError: (...args: unknown[]) => errors.push(args),
+    writeLocal: (key: string, value: string) => {
+      /* 复刻真实现的关键语义：**空值 = 删掉这一条**（见 00-core 的 writeLocal）。
+         "清空输入框就能把存档一起清掉"正是这条 bug 的修复点，替身必须同语义。 */
+      if (value === null || value === undefined || value === '') local.delete(key)
+      else local.set(key, String(value))
+    },
+    readLocal: (key: string) => local.get(key) ?? null,
     applyContextFromSessionList: () => {}, updateChatHeader: () => {}, renderAttachStrip: () => {},
     clearUnread: () => {}, bindChatUi: () => {}, renderEmployees: () => {}, toggleSessionPanel: () => {},
     syncControls: () => {}, updateEffectivePreset: () => {}, updateSendButton: () => {},
@@ -159,10 +184,32 @@ function harness() {
     assert.ok(functions.has(name), `Missing ${name}`)
     return functions.get(name)
   }).join('\n'), scope)
-  return { state, list, chat, title, calls, scope, messages, errors }
+  return { state, list, chat, title, preset, calls, scope, messages, errors, toasts, local }
 }
 
 async function flush(): Promise<void> { await new Promise<void>((resolve) => setImmediate(resolve)) }
+
+/**
+ * 把在途调用用一个合理形状的值全部结清。
+ *
+ * 为什么需要：`createSession` 成功后会接着拉列表、订阅会话…… 只 resolve 第一跳的话，
+ * 用例结束时还挂着未决 promise —— 报出来的是"这个测试之后的所有测试都 pending"，
+ * 指向完全错误的地方（第一版就是这么踩的）。
+ */
+async function settleAll(h: ReturnType<typeof harness>): Promise<void> {
+  for (let round = 0; round < 8; round += 1) {
+    /* 先让微任务跑完再数：下一步的请求是在上一步的 .then 里发出来的，
+       不 flush 就直接看会看到"没有在途请求"而提前返回（第一版就是这么漏的）。 */
+    await flush()
+    const open = h.calls.filter((call) => !call.settled)
+    if (open.length === 0) return
+    for (const call of open) {
+      if (call.method === 'session.list') call.resolve({ sessions: [] })
+      else if (call.method === 'session.history') call.resolve({ events: [], hasMore: false })
+      else call.resolve({})
+    }
+  }
+}
 
 describe('普通聊天页的员工会话树', () => {
   it('高亮与当前标识跟随所选员工，其他员工的标识不可见也不可读', () => {
@@ -230,6 +277,55 @@ describe('普通聊天页的员工会话树', () => {
     assert.equal(h.state.selectedEmployeeId, 'emp_b')
     assert.equal(h.state.selectedSessionId, 'b1')
     assert.equal(h.state.expandedSessionEmployees.has('emp_a'), false)
+  })
+
+  it('agentPreset 栏被填进显示名时：不发请求，并说清该清哪一栏', async () => {
+    /* 真实事故：这一栏被浏览器自动填充成了设备显示名「MacBook 的 Chrome 浏览器」，
+       于是每次新建会话都吃 dsh 的 "preset ... not found"（英文），用户不知道该动哪里。 */
+    const h = harness()
+    h.preset.value = 'MacBook 的 Chrome 浏览器'
+    await h.scope.createSession()
+    assert.equal(
+      h.calls.some((call) => call.method === 'session.create'),
+      false,
+      '明显不是 id 的值不该发出去 —— 那必然失败，还把一句英文错误甩给用户',
+    )
+    assert.equal(h.toasts.length, 1, '必须当场说明，而不是静默什么都不做')
+    assert.match(h.toasts[0] ?? '', /agentPreset/)
+    assert.match(h.toasts[0] ?? '', /preset id/)
+    assert.match(h.toasts[0] ?? '', /清空/)
+    assert.equal(h.local.has('dse.agentPreset'), false, '坏值不许被存进本地偏好')
+  })
+
+  it('清空 agentPreset 栏 = 恢复默认，并且把存档一起清掉（否则刷新又回来）', async () => {
+    const h = harness()
+    h.local.set('dse.agentPreset', 'MacBook 的 Chrome 浏览器')
+    h.preset.value = ''
+    const creating = h.scope.createSession()
+    const call = h.calls.find((entry) => entry.method === 'session.create')
+    assert.ok(call !== undefined)
+    assert.equal(call.params['agentPreset'], undefined, '空值不该被当成"指定了一个空 preset"发出去')
+    assert.equal(h.local.has('dse.agentPreset'), false, '空值要顺手清掉存档 —— 否则下次刷新它又回来了')
+    call.resolve({ sessionId: 'a9' })
+    await settleAll(h)
+    await creating.catch(() => undefined)
+  })
+
+  it('合法的 preset id（含空格的都不行，CJK 目录名可以）原样发出去', async () => {
+    const h = harness()
+    for (const preset of ['standard', '我的秘书']) {
+      const fresh = harness()
+      fresh.preset.value = preset
+      const creating = fresh.scope.createSession()
+      const call = fresh.calls.find((entry) => entry.method === 'session.create')
+      assert.ok(call !== undefined, `${preset} 应当被发出去`)
+      assert.equal(call.params['agentPreset'], preset)
+      assert.equal(fresh.local.get('dse.agentPreset'), preset, '用过的值记下来，下次预填')
+      call.resolve({ sessionId: 'a9' })
+      await settleAll(fresh)
+      await creating.catch(() => undefined)
+    }
+    void h
   })
 
   it('在另一员工分组下新建会话只为该员工创建一次', async () => {

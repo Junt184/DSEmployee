@@ -892,6 +892,39 @@ function forwarder(
 }
 
 /**
+ * `agentPreset` 必须是 dsh 的 preset **id**，不是给人看的名字。
+ *
+ * 为什么专门守这一条（真实事故）：控制台会话栏「高级」里那一栏被填进了
+ * `MacBook 的 Chrome 浏览器`（一个**设备显示名**），于是每次新建会话都变成
+ * `dsh rejected the request: agent-presets: preset "MacBook 的 Chrome 浏览器" not found`。
+ * 报错虽然点了名，但没说是哪个字段、也没说"这不是 id" —— 用户只看到一串英文，
+ * 不知道该清哪里。而这个值还会被存进 localStorage，**刷新后自动回到输入框**：
+ * 于是失败变成粘的，看起来像"这个员工坏了"。
+ *
+ * 判据只取"含空白"这一条：preset id 是目录名/标识符，不该有空格；而 CJK 这类
+ * 非 ASCII 的目录名（`我的秘书`）是合法的，不该被一刀切掉。长度另按 dsh 的量级收。
+ */
+function assertAgentPreset(value: unknown, method: string): void {
+  if (value === undefined || value === null) return
+  if (typeof value !== 'string') {
+    throw protocolError('bad-request', `${method}: agentPreset 必须是字符串，收到 ${typeof value}`)
+  }
+  const preset = value.trim()
+  if (preset === '') return
+  if (/\s/.test(preset)) {
+    throw protocolError(
+      'bad-request',
+      `${method}: agentPreset 只能是 dsh 的 preset id（如 standard / code / cordis），` +
+        `不能含空格 —— 收到 ${JSON.stringify(value)}，这看起来是设备名或显示名。` +
+        '清空控制台会话栏「高级」里的那一栏即可恢复默认（新会话不再指定 preset）。',
+    )
+  }
+  if (preset.length > 64) {
+    throw protocolError('bad-request', `${method}: agentPreset 最长 64 个字符，收到 ${preset.length} 个`)
+  }
+}
+
+/**
  * 单次上传的 base64 长度上限。
  *
  * 与节点侧 `UPLOAD_MAX_BYTES`（2 MiB）对齐：2 MiB 原文的 base64 是约 2.80 M 字符
@@ -899,6 +932,19 @@ function forwarder(
  * = 4 MiB），否则超限的文件会先被帧校验掐线，报出与"文件太大"无关的错误。
  */
 const UPLOAD_BASE64_MAX_CHARS = Math.ceil((2 * 1024 * 1024 * 4) / 3) + 64 * 1024
+
+/**
+ * `session.create`：先校验 `agentPreset`，再按 employeeId 转发给员工所在节点。
+ *
+ * 校验放在 Hub 这一层（而不是只在控制台里）：CLI、定时任务、别的脚本都会调它，
+ * 而"把显示名当 id 传"这种错的代价是一次必然失败的往返 + 一句用户看不懂的英文。
+ */
+const sessionCreate: Handler = async (hub, conn, params) => {
+  if (params !== null && typeof params === 'object' && !Array.isArray(params)) {
+    assertAgentPreset((params as Record<string, unknown>)['agentPreset'], 'session.create')
+  }
+  return await forwarder('session.create', ['employeeId'])(hub, conn, params)
+}
 
 /**
  * `employee.create` 不能按 employeeId 转发 —— 员工此刻还不存在。
@@ -3067,7 +3113,7 @@ export const hubHandlers: Partial<Record<string, Handler>> = {
 
   /* 会话 */
   'session.list': forwarder('session.list', ['employeeId']),
-  'session.create': forwarder('session.create', ['employeeId']),
+  'session.create': sessionCreate,
   'session.prompt': forwarder('session.prompt', ['employeeId', 'sessionId']),
   'session.cancel': forwarder('session.cancel', ['employeeId', 'sessionId']),
   'session.compact': forwarder('session.compact', ['employeeId', 'sessionId']),

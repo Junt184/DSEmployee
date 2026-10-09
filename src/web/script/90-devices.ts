@@ -140,6 +140,10 @@ function renderDevices() {
     var nameInput = el('input', 'note')
     nameInput.type = 'text'
     nameInput.maxLength = 40
+    /* 关掉自动填充：这是"给这台设备起个名字"，而浏览器会把它当成普通姓名字段记住，
+       再自动填到别的文本框里（实测就是这样把设备名串进了会话栏的 agentPreset 那一栏，
+       见 60-sessions 里的注释）。 */
+    nameInput.setAttribute('autocomplete', 'off')
     nameInput.value = String(device.displayName || '')
     nameInput.placeholder = '给这台设备起个认得出的名字'
     nameInput.setAttribute('aria-label', '设备名称')

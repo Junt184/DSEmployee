@@ -48,7 +48,7 @@ before(async () => {
       identityFile: path.join(home, 'clients', 'op.json'),
       url: hubUrl,
       role: 'operator',
-      scopes: ['employee.read', 'employee.manage', 'device.pair'] as never,
+      scopes: ['employee.read', 'employee.manage', 'device.pair', 'employee.prompt'] as never,
       clientId: 'dse-cli',
       displayName: 'op-params',
       autoReconnect: false,
@@ -61,7 +61,7 @@ before(async () => {
   const request = Object.values(store.state().pending)[0]
   assert.ok(request !== undefined)
   await approvePairing(store, request.requestId, 'test', {
-    approvedScopes: ['employee.read', 'employee.manage', 'device.pair'] as never,
+    approvedScopes: ['employee.read', 'employee.manage', 'device.pair', 'employee.prompt'] as never,
   })
   operator = await make()
   await operator.connect()
@@ -79,9 +79,11 @@ interface Failure {
 }
 
 /** 调一个必定失败的方法，把错误原样拿回来（不 assert.rejects：这里要看内容）。 */
-async function failureOf(method: string, params: unknown): Promise<Failure> {
+async function failureOf(method: string, params: unknown, key?: string): Promise<Failure> {
   try {
-    await operator.call(method, params as never, { idempotencyKey: `k-${method}-${logs.length}` })
+    /* 幂等键默认按"这个方法 + 已经打过几条日志"推 —— 大多数用例一次就够。
+       连着调同一个方法多次时要显式给 key（否则会撞上"幂等键配了不同的参数"）。 */
+    await operator.call(method, params as never, { idempotencyKey: key ?? `k-${method}-${logs.length}` })
   } catch (error) {
     const shape = error as { code?: string; message?: string }
     return { code: String(shape.code ?? ''), message: String(shape.message ?? '') }
@@ -140,5 +142,58 @@ describe('被拒的调用要在日志里留痕（但不许把 params 写进日�
       logs.filter((line) => line.includes('rejected')),
       [],
     )
+  })
+})
+
+/**
+ * `agentPreset` 是 dsh 的 preset **id**，不是给人看的名字。
+ *
+ * 真实事故（2026-10-08）：控制台会话栏「高级」里那一栏被填进了设备显示名
+ * 「MacBook 的 Chrome 浏览器」，于是每次新建会话都变成 dsh 那句
+ * `agent-presets: preset "MacBook 的 Chrome 浏览器" not found`。
+ * 报错点到了那个值，却没说"这是哪个字段、它该长什么样"——用户只能去猜，
+ * 而这个值还被存进 localStorage 在刷新后自动填回，失败因此变成粘的。
+ *
+ * 所以 Hub 这一层先拦：值含空白即拒（preset id 是目录名/标识符，不该有空格），
+ * 并在话里直接说清"该清哪一栏"。判据刻意**只取含空白**：CJK 的目录名
+ * （`我的秘书`）是合法的，不该被一刀切掉。
+ */
+describe('agentPreset 必须像 id，而不是像名字', () => {
+  it('含空格（典型：误填成显示名）⇒ 拒绝点名，并指向该清哪一栏', async () => {
+    const failure = await failureOf(
+      'session.create',
+      { employeeId: 'emp_whatever', agentPreset: 'MacBook 的 Chrome 浏览器' },
+      'k-preset-space',
+    )
+    assert.equal(failure.code, 'bad-request')
+    assert.match(failure.message, /agentPreset/, '必须点名是哪个字段')
+    assert.match(failure.message, /空格/, '必须说清判据是什么')
+    assert.match(failure.message, /preset id/, '要说清它该是什么')
+    assert.match(failure.message, /清空|高级/, '要给出下一步该动哪里')
+  })
+
+  it('合法的 id（含 CJK 目录名）放行 —— 拦到这一层就不该再管，交给 dsh 判', async () => {
+    for (const preset of ['standard', 'code', 'cordis', '我的秘书']) {
+      const failure = await failureOf(
+        'session.create',
+        { employeeId: 'emp_nonexistent', agentPreset: preset },
+        `k-preset-ok-${preset}`,
+      )
+      /* 员工不存在是下一层的事；这条只要求"别在这里被 parameters 拦掉"。 */
+      assert.notEqual(failure.code, 'bad-request', `${preset} 不该被参数校验拒绝：${failure.message}`)
+      assert.doesNotMatch(failure.message, /agentPreset/)
+    }
+  })
+
+  it('不给 agentPreset（用节点默认）不受影响', async () => {
+    const failure = await failureOf('session.create', { employeeId: 'emp_nonexistent' }, 'k-preset-none')
+    assert.notEqual(failure.code, 'bad-request')
+  })
+
+  it('类型不对 ⇒ 说清是类型问题，而不是被当成"preset 找不到"', async () => {
+    const failure = await failureOf('session.create', { employeeId: 'emp_x', agentPreset: 42 }, 'k-preset-type')
+    assert.equal(failure.code, 'bad-request')
+    assert.match(failure.message, /agentPreset/)
+    assert.match(failure.message, /字符串/)
   })
 })

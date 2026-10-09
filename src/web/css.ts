@@ -1214,6 +1214,28 @@ li.item:hover .cs-edit, li.item:focus-within .cs-edit { opacity: 1; }
 .msg-queued { font-size: 11px; color: var(--warn); text-align: right; margin-top: 2px; }
 .md-link { color: var(--accent); text-decoration: underline; word-break: break-all; }
 .msg.user .md-link { color: var(--msg-user-fg); }
+.employee-file-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  width: min(100%, 420px);
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--fg);
+  text-align: left;
+}
+.employee-file-icon { font-size: 22px; line-height: 1; }
+.employee-file-details { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.employee-file-name { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.employee-file-path, .employee-file-status { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.employee-file-card .employee-file-download { min-height: 36px; white-space: nowrap; }
+.employee-file-status { grid-column: 1 / -1; }
+.employee-file-status:empty { display: none; }
+.employee-file-status.bad { color: var(--bad); }
 /* 流式气泡的呼吸光标 */
 .cursor {
   display: inline-block;

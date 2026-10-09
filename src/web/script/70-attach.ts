@@ -34,6 +34,56 @@ var ATTACH_MAX_BYTES = 2 * 1024 * 1024
 var ATTACH_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 var ATTACH_INBOX = '收件箱'
 
+/* 员工交付文件：卡片绑定产出消息所属的员工，下载时不读取当前选择。 */
+function employeeFileCard(employeeId, filePath, label) {
+  var name = filePath.split('/').pop() || filePath
+  var card = el('span', 'employee-file-card')
+  card.setAttribute('data-employee-id', employeeId)
+  card.setAttribute('data-file-path', filePath)
+  var icon = el('span', 'employee-file-icon', '📄')
+  icon.setAttribute('aria-hidden', 'true')
+  card.appendChild(icon)
+  var details = el('span', 'employee-file-details')
+  details.appendChild(el('span', 'employee-file-name', label || name))
+  details.appendChild(el('span', 'employee-file-path', filePath))
+  card.appendChild(details)
+  var button = el('button', 'ghost small employee-file-download', '下载')
+  button.type = 'button'
+  button.setAttribute('aria-label', '下载文件：' + name)
+  button.title = '从员工工作区下载（单文件最大 2 MB）'
+  card.appendChild(button)
+  var status = el('span', 'employee-file-status')
+  status.setAttribute('role', 'status')
+  status.setAttribute('aria-live', 'polite')
+  card.appendChild(status)
+  button.onclick = function () {
+    if (button.disabled) return
+    button.disabled = true
+    button.textContent = '下载中…'
+    status.className = 'employee-file-status'
+    status.textContent = ''
+    downloadEmployeeFile(employeeId, filePath).then(function (size) {
+      status.textContent = '已开始下载 · ' + formatBytes(size)
+      button.textContent = '再次下载'
+    }).catch(function (error) {
+      status.className = 'employee-file-status bad'
+      status.textContent = fileDownloadError(error)
+      button.textContent = '重试下载'
+    }).finally(function () {
+      button.disabled = false
+    })
+  }
+  return card
+}
+
+function fileDownloadError(error) {
+  var message = describeError(error)
+  if (/too large to download/i.test(message)) return '文件超过下载上限（2 MB），请让员工拆分后重新发送。'
+  if (/ENOENT|not a regular file/i.test(message)) return '文件不存在或已移动，请让员工重新发送。'
+  if ((error && error.code === 'node-offline') || /node.*offline|node.*unavailable|node.*not connected/i.test(message)) return '员工节点暂时离线，恢复连接后可重试下载。'
+  return '下载失败：' + message
+}
+
 function isImageFile(file) {
   return file !== null && typeof file === 'object' && ATTACH_IMAGE_TYPES.indexOf(String(file.type || '')) >= 0
 }

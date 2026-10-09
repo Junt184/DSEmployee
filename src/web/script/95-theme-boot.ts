@@ -167,7 +167,15 @@ function init() {
   }
 
   var presetInput = $('presetInput')
-  if (presetInput !== null) presetInput.value = readLocal(LS.preset) || ''
+  if (presetInput !== null) {
+    /* 恢复"上次用过的 preset"时先做一次合法性检查：存档里可能是被误填进去的
+       显示名（真实事故：「MacBook 的 Chrome 浏览器」）。这种值**自愈掉**比原样填回
+       输入框好 —— 填回去等于每次都让新建会话失败，而用户看不出是这一栏的问题。 */
+    var savedPreset = readLocal(LS.preset) || ''
+    if (/\s/.test(savedPreset)) savedPreset = ''
+    presetInput.value = savedPreset
+    if (savedPreset === '') writeLocal(LS.preset, '')
+  }
 
   var lastEmployee = readLocal(LS.lastEmployee)
   if (lastEmployee !== null && lastEmployee !== '') state.selectedEmployeeId = lastEmployee

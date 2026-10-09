@@ -15,7 +15,7 @@
 
 import path from 'node:path'
 import { execFile } from 'node:child_process'
-import { readdir, readFile, stat, rm } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat, rm } from 'node:fs/promises'
 
 import {
   ensureDir,
@@ -30,6 +30,7 @@ import {
 } from '../util/fsx.ts'
 import type { DshClient } from './dsh-client.ts'
 import { activeModelOf, readLlmFile } from './employee-llm.ts'
+import { ensureFileDeliveryInstructions } from './file-delivery.ts'
 
 /** `<工作区>/.dsemployee/employee.json` 的内容。 */
 export interface EmployeeManifest {
@@ -330,6 +331,7 @@ export class EmployeeStore {
       renderAgentsMd(manifest),
       0o600,
     )
+    await ensureFileDeliveryInstructions(workspacePath)
 
     // 在 dsh 里注册这个工作区，这样它才会出现在 dsh Web 的工作区列表里
     let workspaceId: string | undefined
@@ -614,9 +616,15 @@ export class EmployeeStore {
     relative: string,
   ): Promise<{ path: string; data: Buffer; size: number; mimeType: string }> {
     const found = await this.#find(employeeId)
-    const target = this.#resolveInside(found, relative)
+    const target = await realpath(this.#resolveInside(found, relative))
+    if (!isPathInside(await realpath(found.workspacePath), target)) {
+      throw new Error(`path escapes the employee workspace: ${relative}`)
+    }
     const info = await stat(target)
     if (!info.isFile()) throw new Error(`${relative} is not a regular file`)
+    if (info.size > UPLOAD_MAX_BYTES) {
+      throw new Error(`file is too large to download: ${info.size} bytes > ${UPLOAD_MAX_BYTES} bytes`)
+    }
     const data = await readFile(target)
     if (data.length > UPLOAD_MAX_BYTES) {
       throw new Error(`file is too large to download: ${data.length} bytes > ${UPLOAD_MAX_BYTES} bytes`)

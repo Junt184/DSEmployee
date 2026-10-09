@@ -74,10 +74,13 @@ function asideRow(box, key, value) {
 }
 
 function downloadEmployeeFile(employeeId, filePath) {
-  rpc('employee.files.download', { employeeId: employeeId, path: filePath })
+  return rpc('employee.files.download', { employeeId: employeeId, path: filePath })
     .then(function (payload) {
-      var data = payload !== null && typeof payload === 'object' ? String(payload.dataBase64 || '') : ''
-      if (data === '') throw new Error('服务端没有返回文件内容')
+      if (payload === null || typeof payload !== 'object' || typeof payload.dataBase64 !== 'string') {
+        throw new Error('服务端没有返回文件内容')
+      }
+      var data = payload.dataBase64
+      if (data === '' && payload.size !== 0) throw new Error('服务端没有返回文件内容')
       var raw = atob(data)
       var bytes = new Uint8Array(raw.length)
       for (var i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i)
@@ -89,12 +92,10 @@ function downloadEmployeeFile(employeeId, filePath) {
       anchor.download = String(filePath).split('/').pop() || 'download'
       document.body.appendChild(anchor)
       anchor.click()
-      anchor.remove()
+      document.body.removeChild(anchor)
       setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
       toast('已开始下载：' + String(filePath), 'ok')
-    })
-    .catch(function (error) {
-      reportRpcError('employee.files.download', error)
+      return bytes.length
     })
 }
 
@@ -410,7 +411,9 @@ function renderEmployeeAside() {
         download.onclick = (function (pathToDownload) {
           return function (event) {
             event.stopPropagation()
-            downloadEmployeeFile(employeeId, pathToDownload)
+            downloadEmployeeFile(employeeId, pathToDownload).catch(function (error) {
+              reportRpcError('employee.files.download', error)
+            })
           }
         })(entryPath)
         fileRow.appendChild(download)

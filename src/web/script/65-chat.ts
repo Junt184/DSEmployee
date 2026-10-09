@@ -637,16 +637,30 @@ function normalizeEvent(envelope) {
 
 /* ── 极小 Markdown 渲染器（员工回复是 markdown）──
  *
- * 只实现安全子集：代码围栏、行内代码、加粗、标题、无序/有序列表、http(s) 链接、GFM 表格。
+ * 只实现安全子集：代码围栏、行内代码、加粗、标题、列表、http(s) 链接、工作区文件、GFM 表格。
  * 全部 DOM + textContent 构建，不走 innerHTML —— 员工输出是不可信文本。
  * 注意：本文件是 String.raw 模板，反引号字符（96）会终结模板字面量，
  * 行内代码 / 代码围栏的匹配只能用 fromCharCode 迂回。
  */
 var MD_TICK = String.fromCharCode(96)
 var MD_FENCE_RE = new RegExp('^\\s*' + MD_TICK + MD_TICK + MD_TICK)
-var MD_INLINE_RE = new RegExp('(\\*\\*[^*]+\\*\\*|' + MD_TICK + '[^' + MD_TICK + ']+' + MD_TICK + '|\\[[^\\]]*\\]\\([^)\\s]+\\))', 'g')
+var MD_INLINE_RE = new RegExp('(\\*\\*[^*]+\\*\\*|' + MD_TICK + '[^' + MD_TICK + ']+' + MD_TICK + '|\\[[^\\]]*\\]\\((?:<[^>\\n]+>|[^)\\s]+)\\))', 'g')
 
-function appendInlineToken(container, token) {
+/* 文件链接只能指向员工工作区；不把本机绝对路径、任意协议或目录穿越变成下载入口。 */
+function workspaceFilePath(url) {
+  var raw = String(url)
+  if (/^dse-file:/i.test(raw)) raw = raw.slice(9)
+  if (raw === '' || /[?#]/.test(raw)) return null
+  var decoded
+  try { decoded = decodeURIComponent(raw) } catch (_) { return null }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(decoded) || /^[\/\\]/.test(decoded) || /[\\\u0000-\u001f\u007f]/.test(decoded)) return null
+  var parts = decoded.split('/')
+  if (parts.indexOf('..') >= 0 || parts[parts.length - 1] === '') return null
+  var filePath = parts.filter(function (part) { return part !== '' && part !== '.' }).join('/')
+  return filePath === '' || filePath.length > 512 ? null : filePath
+}
+
+function appendInlineToken(container, token, employeeId) {
   if (token.length > 4 && token.slice(0, 2) === '**' && token.slice(-2) === '**') {
     container.appendChild(el('strong', '', token.slice(2, -2)))
     return
@@ -659,6 +673,7 @@ function appendInlineToken(container, token) {
   if (split > 0) {
     var label = token.slice(1, split)
     var url = token.slice(split + 2, -1)
+    if (url.charAt(0) === '<' && url.slice(-1) === '>') url = url.slice(1, -1)
     if (/^https?:\/\//i.test(url)) {
       var link = el('a', 'md-link', label === '' ? url : label)
       link.setAttribute('href', url)
@@ -667,17 +682,22 @@ function appendInlineToken(container, token) {
       container.appendChild(link)
       return
     }
+    var filePath = workspaceFilePath(url)
+    if (filePath !== null && typeof employeeId === 'string' && employeeId !== '') {
+      container.appendChild(employeeFileCard(employeeId, filePath, label))
+      return
+    }
   }
   container.appendChild(document.createTextNode(token))
 }
 
-function appendInlineMd(container, text) {
+function appendInlineMd(container, text, employeeId) {
   MD_INLINE_RE.lastIndex = 0
   var last = 0
   var match = MD_INLINE_RE.exec(text)
   while (match !== null) {
     if (match.index > last) container.appendChild(document.createTextNode(text.slice(last, match.index)))
-    appendInlineToken(container, match[0])
+    appendInlineToken(container, match[0], employeeId)
     last = match.index + match[0].length
     match = MD_INLINE_RE.exec(text)
   }
@@ -725,7 +745,7 @@ function mdTableCellClass(kind, align) {
   return kind + (align !== '' ? ' md-align-' + align : '')
 }
 
-function renderMarkdown(container, text) {
+function renderMarkdown(container, text, employeeId) {
   var lines = String(text).split('\n')
   var para = []
   function flushPara() {
@@ -733,7 +753,7 @@ function renderMarkdown(container, text) {
     var p = el('p', 'md-p')
     for (var j = 0; j < para.length; j += 1) {
       if (j > 0) p.appendChild(el('br'))
-      appendInlineMd(p, para[j])
+      appendInlineMd(p, para[j], employeeId)
     }
     container.appendChild(p)
     para = []
@@ -764,7 +784,7 @@ function renderMarkdown(container, text) {
       flushPara()
       var level = String(heading[1]).length
       var headNode = el('h' + String(level + 2), 'md-h md-h' + String(level))
-      appendInlineMd(headNode, String(heading[2]).replace(/\s+#+\s*$/, ''))
+      appendInlineMd(headNode, String(heading[2]).replace(/\s+#+\s*$/, ''), employeeId)
       container.appendChild(headNode)
       i += 1
       continue
@@ -796,7 +816,7 @@ function renderMarkdown(container, text) {
         for (col = 0; col < colCount; col += 1) {
           var headAlign = col < aligns.length ? mdTableAlign(aligns[col]) : ''
           var th = el('th', mdTableCellClass('md-th', headAlign))
-          appendInlineMd(th, headerCells[col] !== undefined ? headerCells[col] : '')
+          appendInlineMd(th, headerCells[col] !== undefined ? headerCells[col] : '', employeeId)
           headRow.appendChild(th)
         }
         thead.appendChild(headRow)
@@ -808,7 +828,7 @@ function renderMarkdown(container, text) {
           for (col = 0; col < colCount; col += 1) {
             var bodyAlign = col < aligns.length ? mdTableAlign(aligns[col]) : ''
             var td = el('td', mdTableCellClass('md-td', bodyAlign))
-            appendInlineMd(td, rowCells[col] !== undefined ? rowCells[col] : '')
+            appendInlineMd(td, rowCells[col] !== undefined ? rowCells[col] : '', employeeId)
             tr.appendChild(td)
           }
           tbody.appendChild(tr)
@@ -831,7 +851,7 @@ function renderMarkdown(container, text) {
         if (!itemBullet && !itemNumbered) break
         if (itemBullet !== bullet) break /* 列表类型变了就收尾，另起一个 */
         var item = el('li', 'md-li')
-        appendInlineMd(item, itemLine.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''))
+        appendInlineMd(item, itemLine.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''), employeeId)
         listNode.appendChild(item)
         i += 1
       }
@@ -1607,7 +1627,7 @@ function ensureStreamBubble() {
   body.appendChild(textNode)
   body.appendChild(el('span', 'cursor'))
   row.appendChild(body)
-  state.streamBubble = { row: row, body: body, textNode: textNode, blocks: {}, text: '' }
+  state.streamBubble = { row: row, body: body, textNode: textNode, blocks: {}, text: '', employeeId: state.selectedEmployeeId }
   return state.streamBubble
 }
 
@@ -1637,7 +1657,7 @@ function finalizeStream(fullText) {
     return ''
   }
   clear(bubble.body)
-  renderMarkdown(bubble.body, text)
+  renderMarkdown(bubble.body, text, bubble.employeeId)
   turnText += text
   return text
 }
@@ -1664,7 +1684,7 @@ function assistantBlockEnd(index, text) {
     var row = msgRow('assistant')
     if (row !== null) {
       var bubble = el('div', 'bubble')
-      renderMarkdown(bubble, text)
+      renderMarkdown(bubble, text, state.selectedEmployeeId)
       row.appendChild(bubble)
     }
     turnText += text
@@ -1684,7 +1704,7 @@ function assistantMessage(text) {
   var row = msgRow('assistant')
   if (row === null) return
   var bubble = el('div', 'bubble')
-  renderMarkdown(bubble, text)
+  renderMarkdown(bubble, text, state.selectedEmployeeId)
   row.appendChild(bubble)
   turnText += text
   scrollMessages()

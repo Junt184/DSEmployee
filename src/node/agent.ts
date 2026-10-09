@@ -31,6 +31,7 @@ import { DshProcess } from './dsh-process.ts'
 import { markConnected, releasePaths, resolveUpdateRepo } from './release.ts'
 import { prepareRelease } from './update.ts'
 import { EmployeeStore, type DiscoveredEmployee } from './employees.ts'
+import { ensureFileDeliveryInstructions } from './file-delivery.ts'
 import { forwarderPort, normalizeProxyConfig, startLocalForwarder, type LocalForwarder, type Upstream } from './llm-proxy.ts'
 import { isPermissionPreset, PERMISSION_PRESETS, readDefaultPreset, writeDefaultPreset } from './permission.ts'
 import { historyEntrySeq, pageEvents, sanitizeHistoryEvents, sanitizeLiveEvent } from './session-payload.ts'
@@ -378,6 +379,11 @@ export class NodeAgent {
 
     // 顺手把还没在 dsh 里注册的工作区补上（dsh 重启/换 DSH_HOME 后这一步是必要的）
     for (const employee of employees) {
+      try {
+        await ensureFileDeliveryInstructions(employee.workspacePath)
+      } catch (error) {
+        this.#log(`warning: ${employee.name} 文件交付指令安装失败：${error instanceof Error ? error.message : String(error)}`)
+      }
       const workspaceId = await store.ensureRegistered(employee)
       if (workspaceId !== undefined) employee.workspaceId = workspaceId
     }

@@ -778,7 +778,18 @@ function createSession(options) {
   var openVersion = state.sessionOpenVersion
   var presetInput = $('presetInput')
   var preset = presetInput === null ? '' : String(presetInput.value || '').trim()
-  if (preset !== '') writeLocal(LS.preset, preset)
+  /* preset 是 dsh 的 **id**（standard / code / cordis…），不是给人看的名字。
+     真实事故：这一栏被填进了设备显示名「MacBook 的 Chrome 浏览器」，于是每次建会话都
+     是 dsh 的 "preset ... not found"。所以在这里先拦下来 —— 报错要能直接指到该清哪一栏，
+     而不是让用户去读 dsh 的英文。
+     判据只取"含空白"：id 是目录名，不该有空格；而 CJK 目录名（我的秘书）是合法的。 */
+  if (/\s/.test(preset)) {
+    toast('「agentPreset」只能是 dsh 的 preset id（如 standard / code / cordis），不能含空格 —— 当前填的是：' + preset + '。清空这一栏即可恢复默认。', 'warn')
+    return Promise.resolve()
+  }
+  /* 空 = 不指定：**必须把存档也清掉**，否则刷新后 boot 又把它填回来，
+     用户清一次、下次刷新又坏 —— 那才是这条 bug 最难受的地方。 */
+  writeLocal(LS.preset, preset)
   var titleInput = $('newSessionTitle')
   var title = titleInput === null ? '' : String(titleInput.value || '').trim()
   var params = { employeeId: employeeId }

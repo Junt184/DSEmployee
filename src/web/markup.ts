@@ -505,7 +505,10 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
         <details class="chat-advanced">
           <summary>高级</summary>
           <div class="muted cs-effective">生效 preset：<code id="effectivePreset"></code></div>
-          <input id="presetInput" type="text" placeholder="agentPreset（可选，新建会话时使用）">
+          <!-- autocomplete/spellcheck 都关掉：这是给 dsh 的 preset **id**，
+               不是人名地名。实测踩过——浏览器把它当普通文本框自动填充，
+               把设备显示名串了进来，于是每次新建会话都失败（见 60-sessions 的注释）。 -->
+          <input id="presetInput" type="text" placeholder="agentPreset（可选，新建会话时使用）" autocomplete="off" autocapitalize="off" spellcheck="false">
           <button id="btnReloadSessions" class="ghost">刷新会话列表</button>
         </details>
         <div class="chat-session-tools" id="sessionTools"></div>

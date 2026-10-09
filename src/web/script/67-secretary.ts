@@ -557,7 +557,7 @@ function renderBoard() {
   } else {
     meta.className = 'board-meta'
   }
-  renderMarkdown(body, secretaryState.text)
+  renderMarkdown(body, secretaryState.text, secretaryState.employeeId)
 }
 
 /** 红点：有新结论没看过（比对她写的时间戳 vs 本机上次打开看板的时间） */
