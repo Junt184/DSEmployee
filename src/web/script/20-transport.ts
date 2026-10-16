@@ -402,7 +402,7 @@ function onEvent(frame) {
   if (event === 'employee.changed' || event === 'node.changed') {
     /* loadEmployees 收尾时会比对在线状态：选中的那位从离线变回在线就重接会话
        （见 noteNodeOnline —— 判据是"翻转那一次"，不是"每次事件都清屏重读"）。 */
-    loadEmployees()
+    loadEmployees(true)
     if (state.view === 'projects') loadProjectWorkspace()
     /* 岗位卡片开着的话跟着重绘（人数/未使用状态会变） */
     var positionsCard = $('cardPositions')

@@ -109,16 +109,53 @@ function renderProjectEmployees() {
   if (project !== null && selected === undefined) {
     var currentEmployee = employeeById(state.selectedEmployeeId)
     selected = currentEmployee && currentEmployee.nodeId === project.nodeId ? currentEmployee.id : ''
-    projectWork.selectedEmployees[project.nodeId] = selected
+    // 首次目录尚未读到时不记下空选择，员工数据晚到后仍可恢复原执行者。
+    if (employeeDirectoryRead) projectWork.selectedEmployees[project.nodeId] = selected
   }
-  clear(select)
-  var general = el('option', '', '通用助手（节点默认模型）'); general.value = ''; select.appendChild(general)
-  state.employees.forEach(function (employee) {
-    if (project === null || employee.nodeId !== project.nodeId) return
-    var option = el('option', '', employee.name + (positionName(employee.position) ? '（' + positionName(employee.position) + '）' : ''))
-    option.value = employee.id; select.appendChild(option)
+  var local = state.employees.filter(function (employee) { return project !== null && employee.nodeId === project.nodeId })
+  var remote = state.employees.filter(function (employee) { return project !== null && employee.nodeId !== project.nodeId && employee.nodeOnline !== false && employee.available !== false && employee.status !== 'missing-dir' })
+  function label(employee) { return employee.name + (positionName(employee.position) ? '（' + positionName(employee.position) + '）' : '') }
+  var options = [{ value: '', text: '通用助手（节点默认模型）', disabled: false }]
+  local.forEach(function (employee) {
+    var reason = projectExecutorError(project, employee.id)
+    options.push({ value: employee.id, text: label(employee) + (reason ? ' · ' + (employee.nodeOnline === false ? '离线' : '不可用') : ' · 在线'), disabled: reason !== '' })
   })
-  if (Array.from(select.options).some(function (option) { return option.value === selected })) select.value = selected
+  if (selected && !options.some(function (option) { return option.value === selected })) {
+    options.push({ value: selected, text: '原执行者暂不可用（请重新选择）', disabled: true })
+  }
+  // 其他在线员工也可看见，但不能在另一台机器上直接访问当前项目目录。
+  remote.forEach(function (employee) {
+    if (options.some(function (option) { return option.value === employee.id })) return
+    options.push({ value: employee.id, text: label(employee) + ' · ' + (employee.nodeName || shortId(employee.nodeId)) + '（其他节点）', disabled: true })
+  })
+  var signature = JSON.stringify([projectKey(project), selected || '', options])
+  if (select.getAttribute('data-executor-signature') !== signature) {
+    clear(select)
+    options.forEach(function (entry) {
+      var option = el('option', '', entry.text); option.value = entry.value; option.disabled = entry.disabled; select.appendChild(option)
+    })
+    select.value = selected || ''
+    select.setAttribute('data-executor-signature', signature)
+  }
+  select.disabled = project === null || (employeeDirectoryRequest !== null && !employeeDirectoryRead)
+  var hint = $('projectEmployeeHint'), node = projectNode(project)
+  if (hint !== null) {
+    hint.textContent = project === null ? '先打开项目，执行者将按项目所在节点显示。'
+      : employeeDirectoryError ? '员工列表更新失败：' + employeeDirectoryError + '。已有名单保留，点击页面“刷新”可重试。'
+      : employeeDirectoryRequest !== null && !employeeDirectoryRead ? '正在读取在线员工…'
+      : '可选 ' + local.filter(function (employee) { return projectExecutorError(project, employee.id) === '' }).length + ' 位员工，来自 ' + (node ? node.name : '项目所在节点') +
+        (remote.length ? '；其他节点的 ' + remote.length + ' 位在线员工需在其节点打开项目后使用。' : '。')
+  }
+  syncProjectControls()
+}
+function projectExecutorError(project, employeeId) {
+  if (!employeeId) return ''
+  var employee = employeeById(employeeId)
+  if (employee === null) return '所选员工已不在当前目录中，请刷新员工列表或重新选择执行者。'
+  if (project === null || employee.nodeId !== project.nodeId) return '执行员工与项目必须位于同一节点，请在该员工所在节点打开项目目录。'
+  if (employee.nodeOnline === false) return '所选员工的节点当前离线，请等待恢复或重新选择执行者。'
+  if (employee.status === 'missing-dir' || employee.available === false) return '所选员工当前不可用，请检查员工主目录或重新选择执行者。'
+  return ''
 }
 function renderProjectHeader() {
   var project = projectWork.current, session = projectSelectedSession(), node = projectNode(project)
@@ -136,11 +173,13 @@ function syncProjectControls() {
   var canPrompt = ready && state.scopes.indexOf('employee.prompt') >= 0, project = projectWork.current
   var session = projectSelectedSession(), busy = projectWork.sending || projectWork.mutating
   var nodeSelect = $('projectNode'), selectedNodeId = nodeSelect === null ? '' : nodeSelect.value
+  var executor = $('projectEmployee'), executorReady = projectWork.sessionId !== null ||
+    (executor !== null && !executor.disabled && projectExecutorError(project, executor.value) === '')
   var controls = { btnProjectOpen: canPrompt && canRead && selectedNodeId !== '' && !projectWork.opening, btnProjectRefresh: canRead,
     btnProjectNewTask: canPrompt && project !== null, btnProjectRename: canPrompt && session !== null && !busy,
     btnProjectArchive: canPrompt && session !== null && !busy && (!projectWork.running || session.archived),
     btnProjectCancel: canPrompt && projectWork.sessionId !== null && projectWork.running && !projectWork.mutating,
-    btnProjectSend: canPrompt && project !== null && !busy && !(session && (session.archived || session.setupError)) && String(($('projectPrompt') || {}).value || '').trim() !== '' }
+    btnProjectSend: canPrompt && project !== null && !busy && executorReady && !(session && (session.archived || session.setupError)) && String(($('projectPrompt') || {}).value || '').trim() !== '' }
   Object.keys(controls).forEach(function (id) { var button = $(id); if (button !== null) button.disabled = !controls[id] })
   var stop = $('btnProjectCancel'); if (stop !== null) stop.classList.toggle('hidden', !projectWork.running)
   var archive = $('btnProjectArchive'); if (archive !== null) archive.textContent = session && session.archived ? '恢复' : '归档'
@@ -153,7 +192,8 @@ function loadProjectWorkspace() {
   if (state.phase !== 'ready' || state.scopes.indexOf('employee.read') < 0) return Promise.resolve()
   if (projectWork.loading !== null) return projectWork.loading
   var previousSerial = projectWork.serial
-  var request = rpc('node.list', {}).then(function (payload) {
+  var request = Promise.all([rpc('node.list', {}), loadEmployees()]).then(function (results) {
+    var payload = results[0]
     var nodes = pickArray(payload, ['nodes', 'items'])
     projectWork.nodes = nodes
     return Promise.all(nodes.map(function (node) {
@@ -420,6 +460,11 @@ function sendProjectPrompt() {
   if (sessionId === null) projectWork.newTask = true
   projectWork.listSerial += 1
   var employee = String(($('projectEmployee') || {}).value || ''), title = String(($('projectTaskName') || {}).value || '').trim()
+  if (sessionId === null) {
+    var executorError = projectExecutorError(project, employee)
+    if (executorError) { projectTell(executorError, true); return }
+    if ($('projectEmployee').disabled) { projectTell('员工目录正在读取，请稍后再发送。', true); return }
+  }
   var draftKey = projectKey(project) + '/' + (sessionId || 'new')
   projectWork.drafts.set(draftKey, original); projectWork.sending = true; syncProjectControls(); projectTell('正在发送…', false)
   var creating = sessionId !== null ? Promise.resolve({ sessionId: sessionId }) : (function () {
@@ -487,11 +532,11 @@ function bindProjectUi() {
   if ($('projectOpenForm') === null) return
   bindProjectDirectoryPicker()
   $('projectOpenForm').onsubmit = openProjectDirectoryPicker
-  $('btnProjectRefresh').onclick = function () { projectTell('', false); loadProjectWorkspace() }
-  $('btnProjectNewTask').onclick = function () { openProjectConversation(null); $('projectPrompt').focus() }
+  $('btnProjectRefresh').onclick = function () { projectTell('', false); loadEmployees(true); loadProjectWorkspace() }
+  $('btnProjectNewTask').onclick = function () { openProjectConversation(null); loadEmployees(true); $('projectPrompt').focus() }
   $('projectShowArchived').onchange = renderProjectNavigation
   $('projectEmployee').onchange = function () {
-    if (projectWork.current !== null) { projectWork.selectedEmployees[projectWork.current.nodeId] = $('projectEmployee').value; rememberProjectWorkspace() }
+    if (projectWork.current !== null) { projectWork.selectedEmployees[projectWork.current.nodeId] = $('projectEmployee').value; rememberProjectWorkspace(); syncProjectControls() }
   }
   $('projectPrompt').oninput = function () {
     if (projectWork.sessionId === null) { projectWork.newTask = true; projectWork.requestedSession = '' }

@@ -3363,6 +3363,7 @@ details.card > summary + * { margin-top: 8px; }
 .project-composer textarea { width: 100%; min-height: 90px; box-sizing: border-box; resize: vertical; margin-block: 12px; }
 .project-task-options { margin-top: 0; }
 .project-task-options label { flex: 1; min-width: 170px; }
+#projectEmployeeHint { margin: 6px 0 0; font-size: 12px; overflow-wrap: anywhere; }
 .project-composer-actions .muted { font-size: 11px; }
 /* 浏览所选执行节点的目录；路径仅展示，通过文件夹列表点选。 */
 .project-directory-picker { width: min(820px, calc(100% - 32px)); height: min(680px, calc(100vh - 48px)); height: min(680px, calc(100dvh - 48px)); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); color: var(--fg); font: inherit; box-shadow: 0 18px 70px #0005; overflow: hidden; }

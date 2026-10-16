@@ -123,7 +123,8 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
         <div id="projectMessages" class="project-messages" aria-label="项目消息"></div>
         <button id="btnProjectLatest" class="ghost hidden">回到最新</button>
         <div class="project-composer">
-          <div class="project-task-options"><label>新任务执行者<select id="projectEmployee" aria-label="新任务执行者"><option value="">通用助手（节点默认模型）</option></select></label><label>新任务名称<input id="projectTaskName" maxlength="200" placeholder="可选，留空也能直接开始"></label></div>
+          <div class="project-task-options"><label>新任务执行者<select id="projectEmployee" aria-label="新任务执行者" aria-describedby="projectEmployeeHint"><option value="">通用助手（节点默认模型）</option></select></label><label>新任务名称<input id="projectTaskName" maxlength="200" placeholder="可选，留空也能直接开始"></label></div>
+          <p id="projectEmployeeHint" class="muted" role="status">先打开项目，执行者将按项目所在节点显示。</p>
           <label for="projectPrompt">任务指令</label><textarea id="projectPrompt" rows="3" placeholder="描述要做的事；提到的相对文件路径以当前项目为准。"></textarea>
           <div class="project-composer-actions"><span class="muted">执行者用于新任务；已有会话保留原来的目录和执行者。</span><button id="btnProjectSend" class="primary">发送</button></div>
         </div>

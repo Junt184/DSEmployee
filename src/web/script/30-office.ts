@@ -21,9 +21,19 @@ function pickArray(payload, keys) {
   return []
 }
 
-function loadEmployees() {
+var employeeDirectoryRequest = null
+var employeeDirectoryRead = false
+var employeeDirectoryError = ''
+var employeeDirectoryAgain = false
+
+function loadEmployees(refreshAfterPending) {
   if (state.phase !== 'ready') return Promise.resolve([])
-  return rpc('employee.list', {})
+  if (employeeDirectoryRequest !== null) {
+    if (refreshAfterPending === true) employeeDirectoryAgain = true
+    return employeeDirectoryRequest
+  }
+  employeeDirectoryError = ''
+  var request = rpc('employee.list', {})
     .then(function (payload) {
       var list = pickArray(payload, ['employees', 'items', 'list'])
       state.employees = list.filter(function (item) {
@@ -33,8 +43,10 @@ function loadEmployees() {
       state.employees.forEach(function (employee) {
         if (typeof employee.id === 'string') state.employeeNames.set(employee.id, String(employee.name || employee.id))
       })
+      employeeDirectoryRead = true
       pruneAvatarCache(state.employees)
       renderEmployees()
+      if (typeof renderProjectEmployees === 'function') renderProjectEmployees()
       if (typeof renderSessions === 'function') renderSessions()
       if (typeof loadSessionTree === 'function') loadSessionTree()
       renderApprovals()
@@ -52,9 +64,20 @@ function loadEmployees() {
       return state.employees
     })
     .catch(function (error) {
+      employeeDirectoryError = describeError(error)
       reportRpcError('employee.list', error)
       return []
     })
+    .finally(function () {
+      if (employeeDirectoryRequest === request) employeeDirectoryRequest = null
+      if (typeof renderProjectEmployees === 'function') renderProjectEmployees()
+      var again = employeeDirectoryAgain; employeeDirectoryAgain = false
+      // 节点/员工变更发生在旧请求途中时再取一次，不能由旧快照吃掉变更通知。
+      if (again && state.phase === 'ready') return loadEmployees()
+    })
+  employeeDirectoryRequest = request
+  if (typeof renderProjectEmployees === 'function') renderProjectEmployees()
+  return request
 }
 
 /** 卡了多久的人话（只用于徽章上那一小格，所以粗粒度就够）。 */
