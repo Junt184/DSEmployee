@@ -251,56 +251,124 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
     </details>
   </section>
 
-  <!-- 办公室（全景）：左侧是可滚动的小办公室工位，右侧是每日虚构小剧场。
-       为什么不用背景图：背景图要生图（本仓库没有出图产线），位图还要进指纹、进 PWA 预缓存、
-       为深色主题再出一张；而墙面、工位、气泡全由 CSS 与 DOM 绘制，头像沿用员工素材。
-       办公室有三个关键容器：
-         #roomSummary 门牌（一句话汇总）、#roomRoom 场地（墙面与地板）、
-         #roomFloor 可滚动的工位网格（头像由脚本 32-office-room 按人数增删与绑定）。
-       工位头像点一下 = 他说一句（气泡），双击或气泡里的"聊两句" = 走办公区那条现成的入口
-       （selectEmployee → 对话视图）。 -->
+  <!-- 微缩办公室：矢量布景与真实员工共用同一套坐标，每间六个工位，增加员工时扩展工作室。
+       场景彩蛋与每日剧场只在浏览器里演出；员工状态、未读与真实对话入口仍来自办公区。 -->
   <section class="col hidden" id="viewOfficeRoom">
-    <section class="card room-card">
-      <h2>全景
-        <span class="h2-actions">
-          <span class="chip" id="roomSummary"></span>
-        </span>
-      </h2>
+    <section class="room-card">
+      <header class="room-page-heading">
+        <div>
+          <span class="room-eyebrow"><span></span> LITTLE OFFICE, BIG IDEAS</span>
+          <h2>小办公室<span>把日常，过得有趣一点。</span></h2>
+          <p>来逛一圈，和同事打个招呼，或者给今天加一点小插曲。</p>
+        </div>
+        <div class="room-calendar"><span class="room-calendar-icon" aria-hidden="true">☀</span><div><strong id="roomDayLabel">今天，也一起上班</strong><span>一个属于你们的小世界</span></div></div>
+      </header>
       <div class="room-layout">
         <div class="room-stage-column">
-          <div class="room-stage-heading">
-            <div><h3>小办公室</h3><span>每位员工一个工位 · 人多时可滚动查看</span></div>
-          </div>
-          <div class="room-hint">点一下谁，他就跟你说句话；双击或点「聊两句」开始真实对话。打字=忙、Zzz=离线、「!」=需处理、角标=未读；这些状态都是真实的。小剧场是虚构演出。</div>
-          <div class="room room-small-office" id="roomRoom" data-tier="t10" data-daypart="day" role="group"
-            aria-label="小办公室：每位员工有独立工位，人数较多时可滚动查看；点一下头像听一句，双击开始对话">
-            <div class="room-office-backdrop" aria-hidden="true">
-              <span class="room-office-window"></span>
-              <span class="room-office-board">今日灵感</span>
-              <span class="room-office-plant">🪴</span>
+          <div class="room-scene-card">
+            <div class="room-toolbar">
+              <div class="room-studio-title"><span class="room-studio-dot"></span><h3 id="roomStudioName">01 号工作室</h3><span>微缩日常</span></div>
+              <div class="room-pagination"><button id="roomPrevPage" type="button" aria-label="上一间工作室">←</button><span id="roomPageLabel">01 / 01</span><button id="roomNextPage" type="button" aria-label="下一间工作室">→</button></div>
+              <div class="room-light-switch" role="group" aria-label="办公室光线">
+                <button type="button" data-room-light="day" aria-pressed="true" title="切换日光">日光</button>
+                <button type="button" data-room-light="dusk" aria-pressed="false" title="切换落日">落日</button>
+                <button type="button" data-room-light="night" aria-pressed="false" title="切换夜晚">夜晚</button>
+              </div>
             </div>
-            <span class="room-ground"></span>
-            <div class="room-scene" id="roomFloor" tabindex="0" role="group" aria-label="员工工位；员工较多时可在此滚动查看"></div>
+          <div class="room-playbar"><div><strong>给日常加点戏</strong><span>随手点点，会有小惊喜</span></div><div class="room-play-actions"><button type="button" data-room-action="coffee"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 8h10v6a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V8Zm10 1h2a2 2 0 0 1 0 4h-2M3 18h13M7 5c-2-2 2-2 0-4m4 4c-2-2 2-2 0-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>送杯咖啡</button><button type="button" data-room-action="plane"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m2 8 16-6-6 16-3-7-7-3Zm7 3 9-9m-9 9v5l3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>纸飞机</button><button type="button" data-room-action="plant"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 14V8m0 3C3 12 2 6 3 4c5-1 7 3 7 7Zm0-3c0-6 5-7 7-6 1 5-2 7-7 6ZM6 14h8l-1 5H7l-1-5Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>碰碰绿植</button><button class="room-motion-toggle" type="button" data-room-ambience aria-pressed="false" title="暂停场景里的装饰动画"><span id="roomMotionLabel">暂停小动作</span></button></div></div>
+            <div class="room room-diorama" id="roomRoom" data-daypart="day" role="group" aria-label="微缩办公室：点同事听一句话，双击进入对话；增加员工时可切换工作室">
+              <span class="room-scene-caption" aria-hidden="true">a good day<br><i>starts here.</i></span>
+              <svg class="room-office-art" viewBox="0 0 1000 720" fill="none" aria-hidden="true">
+                <defs>
+                  <linearGradient id="roomArtWindow" x1="0" y1="0" x2="0.7" y2="1"><stop class="office-sky-top" stop-color="#b8dedd"/><stop class="office-sky-bottom" offset="1" stop-color="#f3ead6"/></linearGradient>
+                  <linearGradient id="roomArtFloor" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eee0c4"/><stop offset="1" stop-color="#d9c6a2"/></linearGradient>
+                  <linearGradient id="roomArtWall" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#e4e9d9"/><stop offset="1" stop-color="#f9f5e7"/></linearGradient>
+                  <linearGradient id="roomArtSunbeam" x1="0" y1="0" x2="0.7" y2="1"><stop stop-color="#fff8d3" stop-opacity=".62"/><stop offset="1" stop-color="#fff8d3" stop-opacity="0"/></linearGradient>
+                  <filter id="roomArtSoftShadow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="13"/></filter>
+                  <g id="roomArtLeaf"><path d="M0 0C-32-1-41-27-33-36C-17-43 2-21 0 0Z" fill="#71947c"/><path d="M-1-1C4-35 30-49 40-38C50-20 24-3-1-1Z" fill="#90ae8a"/><path d="M0 0C-6-43 7-64 19-58C33-48 18-16 0 0Z" fill="#4f7c63"/></g>
+                </defs>
+                <ellipse cx="505" cy="606" rx="390" ry="55" fill="#63756a" opacity=".14" filter="url(#roomArtSoftShadow)"/>
+                <path d="M50 422 500 207 950 422 500 668Z" fill="#b7bda8"/>
+                <path d="M50 402 500 187 950 402 500 648Z" fill="url(#roomArtFloor)"/>
+                <path d="M50 402 500 648V668L50 422Z" fill="#c5b592"/><path d="m500 648 450-246v20L500 668Z" fill="#a99f82"/>
+                <g stroke="#bca984" stroke-opacity=".26" stroke-width="1.6">
+                  <path d="m125 366 450 241m-375-277 450 236m-375-272 450 232m-375-268 450 226m-375-262 450 223"/>
+                  <path d="M125 443 575 223M200 484 650 259M275 525 725 295M350 566 800 331M425 607 875 367"/>
+                </g>
+                <path d="M50 402V227L500 12v175Z" fill="url(#roomArtWall)"/><path d="M500 12 950 227v175L500 187Z" fill="#d9e1cc"/>
+                <path d="M50 227 500 12 950 227" stroke="#fdfbf2" stroke-width="12" stroke-linejoin="round"/>
+                <path d="M50 395 500 180 950 395" stroke="#b9c5ad" stroke-width="9"/>
+                <!-- 左侧连续落地窗与窗外剪影 -->
+                <g transform="matrix(1 -.478 0 1 95 233)">
+                  <rect width="325" height="128" rx="4" fill="#9eafa4"/><rect x="6" y="5" width="313" height="116" rx="2" fill="url(#roomArtWindow)"/>
+                  <circle class="office-window-sun" cx="241" cy="38" r="22" fill="#fff6cd"/>
+                  <path d="M6 109V82h32V69h35v25h26V77h39v32h26V87h34v22h33V71h36v38h52v12H6Z" fill="#9cbdb1" opacity=".45"/>
+                  <path d="M82 5v116M162 5v116M242 5v116M6 76h313" stroke="#f8f9ea" stroke-width="7"/>
+                  <path d="M-7 127h339v9H-7Z" fill="#bac7b1"/>
+                  <path d="M12 10h29L13 114H6V32Z" fill="#fff" opacity=".18"/>
+                </g>
+                <path class="office-sunbeam" d="m105 368 305-146 307 236-259 148Z" fill="url(#roomArtSunbeam)"/>
+                <!-- 墙上的时钟、海报和软木留言板 -->
+                <g transform="matrix(1 .478 0 1 557 91)">
+                  <rect x="0" y="0" width="88" height="94" rx="3" fill="#98ab91" opacity=".25"/><rect x="-3" y="-4" width="88" height="94" rx="3" fill="#fbf5df" stroke="#b8baa0" stroke-width="4"/>
+                  <circle cx="41" cy="27" r="16" fill="#dea26d"/><path d="M19 31c7-9 16-15 28-10 12 5 14 13 22 10v19H19Z" fill="#72988a"/>
+                  <text x="13" y="67" fill="#4a675a" font-size="12" font-family="Georgia,serif" font-weight="bold">MAKE GOOD</text><text x="13" y="80" fill="#4a675a" font-size="12" font-family="Georgia,serif" font-weight="bold">THINGS.</text>
+                </g>
+                <g transform="matrix(1 .478 0 1 725 156)">
+                  <rect width="110" height="72" rx="4" fill="#b79e75" stroke="#dfd1aa" stroke-width="5"/><path d="m12 14 26-3 2 26-26 3Z" fill="#f8dfa1"/><path d="m48 23 25 2-2 29-25-2Z" fill="#d3e4cd"/><path d="m80 10 20 1-2 23-20-1Z" fill="#e8b9a4"/><path d="m19 22 13-1m21 11 13 1m-14 7 13 1" stroke="#a18a60" stroke-width="2"/>
+                </g>
+                <g transform="matrix(1 .478 0 1 874 234)"><circle r="23" fill="#faf7e8" stroke="#9cab92" stroke-width="4"/><path d="M0-14V0L10 5" stroke="#647767" stroke-width="3" stroke-linecap="round"/><circle r="2" fill="#647767"/></g>
+                <!-- 窗边咖啡柜 -->
+                <g class="office-coffee-corner" transform="translate(128 367)">
+                  <path d="m0 0 85-40 62 29-85 43Z" fill="#d5b486"/><path d="m0 0 62 32v66L0 67Z" fill="#b68e60"/><path d="m62 32 85-43v67L62 98Z" fill="#cba373"/><path d="m71 44 65-33v22L71 66Zm0 31 65-33v11L71 86Z" fill="#9c7c53"/>
+                  <path d="m14-10 28-13 26 12-28 14Z" fill="#f2e2bd"/><path d="M19-43 49-57 70-47v35L40 3 19-8Z" fill="#526c62"/><path d="m25-38 19-9 18 8v18l-19 9-18-8Z" fill="#314f46"/><path d="m31-25 12-6 11 5v9l-12 6-11-5Z" fill="#ddc79f"/><path d="m37-10 8-4 7 3v8l-8 4-7-3Z" fill="#faf2d8"/>
+                  <g class="office-coffee-steam" stroke="#fffaf0" stroke-width="2.8" stroke-linecap="round"><path d="M42-18c-8-6 7-9 0-15M49-21c-8-6 7-9 0-15"/></g>
+                  <path d="m86-14 15-7 11 5v15l-15 7-11-5Z" fill="#f6e5c3"/><path d="m111-8 9-4v9l-9 5" stroke="#f6e5c3" stroke-width="4"/>
+                </g>
+                <!-- 小会客区：地毯、沙发、圆桌和一本没合上的杂志 -->
+                <path d="m695 365 112-54 126 62-114 63Z" fill="#aaa98d" opacity=".2"/><path d="m685 351 112-54 126 62-114 63Z" fill="#d7b594"/>
+                <g transform="translate(767 313)">
+                  <path d="m0 0 39-19 94 45-39 20Z" fill="#82a995"/><path d="m0 0 94 46v43L0 42Z" fill="#6d9582"/><path d="m94 46 39-20v43L94 89Z" fill="#4f7e69"/>
+                  <path d="M0-15 12-21 106 24v42L94 72 0 27Z" fill="#9cbca5"/><path d="m12-21 94 45v42L12 21Z" fill="#89ae98"/>
+                  <path d="m-5 17 18-9 9 5v34L4 56-5 51Zm89 43 18-9 9 5v34l-18 9-9-5Z" fill="#a9c6ad"/>
+                  <path d="m31 16 19 9v21l-19-9Zm33 16 19 9v21l-19-9Z" fill="#d3c9a6"/>
+                  <path d="M5 55v11m91 27v10m34-33v10" stroke="#536a56" stroke-width="5"/>
+                </g>
+                <g transform="translate(740 385)"><path d="M0-5v32m36-32v32" stroke="#9b8466" stroke-width="5"/><ellipse cy="-8" rx="43" ry="22" fill="#ad9676"/><ellipse cy="-13" rx="43" ry="22" fill="#f4e7c9"/><path d="m-22-14 19-9 25 12-19 9Z" fill="#cb8b6c"/><path d="m-19-14 16-7 21 10-16 7Z" fill="#fff3d8"/><ellipse cx="18" cy="-18" rx="7" ry="4" fill="#7e9d80"/></g>
+                <!-- 角落里的绿植 -->
+                <g class="office-plant-leaves" transform="translate(492 223)"><path d="M0-4v-52m0 33-24-26m24 18 23-25" stroke="#4f765a" stroke-width="4"/><use href="#roomArtLeaf" transform="translate(0 -35) scale(.8)"/><use href="#roomArtLeaf" transform="translate(0 -62) scale(.62)"/></g>
+                <path d="m470 217 44-1-7 35c-9 8-23 7-30 0Z" fill="#ba8b68"/><ellipse cx="492" cy="217" rx="22" ry="10" fill="#d9ab81"/><ellipse cx="492" cy="215" rx="16" ry="6" fill="#766b4b"/>
+                <g transform="translate(872 433)"><path d="M-21 0h42l-7 36c-9 7-19 7-28 0Z" fill="#ece5cf"/><ellipse rx="21" ry="9" fill="#c8ccb3"/><path d="M0-1v-40m0 15-20-25m20 16 18-27" stroke="#537f60" stroke-width="4"/><use href="#roomArtLeaf" transform="translate(0 -21) scale(.78)"/><use href="#roomArtLeaf" transform="translate(0 -49) scale(.65)"/></g>
+                <g transform="matrix(1 .48 -1 .52 365 575)" opacity=".5"><text fill="#9e8d69" font-size="15" font-family="system-ui,sans-serif" letter-spacing="5">LITTLE OFFICE</text><path d="M0 10h132" stroke="#b39f75"/></g>
+                <g class="office-pendant"><path d="M675 0v92" stroke="#9da38c" stroke-width="3"/><path d="m642 104 33-24 33 24c-16 17-50 17-66 0Z" fill="#bd9f6c"/><ellipse cx="675" cy="106" rx="33" ry="11" fill="#f3d89f"/><ellipse class="office-lamp-glow" cx="675" cy="108" rx="23" ry="5" fill="#fff6d4"/></g>
+              </svg>
+              <div class="room-scene" id="roomFloor" role="group" aria-label="工作室里的员工工位"></div>
+              <svg class="room-paper-plane" viewBox="0 0 64 50" fill="none" aria-hidden="true"><path d="m2 21 59-18-21 43-12-16Z" fill="#fffdf3" stroke="#739087" stroke-width="2"/><path d="m2 21 26 9L61 3 21 24l7 6-1 14 10-9" stroke="#739087" stroke-width="2"/></svg>
+              <span class="room-event-spark room-event-spark-one" aria-hidden="true">✦</span><span class="room-event-spark room-event-spark-two" aria-hidden="true">✧</span>
+              <span class="room-corner-label" aria-hidden="true"><span></span> LIVE LITTLE MOMENTS</span>
+            </div>
+            <div class="room-scene-bottom"><p><span aria-hidden="true">↖</span> 点一位同事，听一句小心声</p><span class="room-scene-tips">双击工位 · 进入对话</span></div>
           </div>
+          <div class="room-moment"><span class="room-moment-icon" aria-hidden="true">✦</span><div><strong id="roomEventTitle">办公室里的小确幸</strong><p id="roomSceneMessage" aria-live="polite">阳光刚好，咖啡温热。今天会有什么好玩的事？</p><span id="roomEventText">场景彩蛋 · 只负责让心情变好一点</span></div></div>
+          <div class="room-colleague"><div class="room-colleague-avatar" id="roomSelectedAvatar"></div><div class="room-colleague-copy"><div class="room-colleague-heading"><strong id="roomSelectedName">等一位新同事</strong><span id="roomSelectedStatus">尚无员工</span></div><span id="roomSelectedRole">每位同事都有自己的小工位</span><p id="roomSelectedQuote">点一下工位，和他打个招呼。</p></div><button type="button" id="roomSelectedTalk">聊两句 <span aria-hidden="true">↗</span></button></div>
         </div>
         <aside class="room-story-card" aria-labelledby="roomStoryTitle">
           <div class="room-story-header">
-            <div>
-              <span class="room-story-eyebrow">今日限定 · 虚构演出</span>
-              <h3 id="roomStoryTitle">数字员工小剧场</h3>
-            </div>
+            <div><span class="room-story-eyebrow">THE OFFICE THEATER</span><h3 id="roomStoryTitle">今日小剧场 <span>虚构放映中</span></h3></div>
             <button id="roomStorybookToggle" class="room-storybook-toggle" type="button" aria-expanded="false" aria-controls="roomStorybook">
               趣事簿 <span id="roomStorybookCount">0</span>
             </button>
           </div>
+          <div class="room-story-poster" id="roomStoryPoster" aria-hidden="true"><span class="room-poster-episode">TODAY’S EPISODE</span><svg viewBox="0 0 320 165" fill="none"><ellipse cx="162" cy="143" rx="93" ry="13" fill="#b2b799" opacity=".27"/><path d="m33 153 21-86m234 86-21-86" stroke="#c5c5aa" stroke-width="2"/><path d="M34 49c27 24 58 26 79 11m96 0c25 14 51 13 79-11" stroke="#b8be9c" stroke-width="2" stroke-dasharray="3 5"/><g class="room-poster-prop room-poster-prop-plant"><path d="M143 102h39l-6 36c-8 7-19 7-27 0Z" fill="#c28f6e"/><ellipse cx="162" cy="103" rx="20" ry="8" fill="#e0b48b"/><path d="M162 103V62m0 25-23-18m23 7 20-23" stroke="#507658" stroke-width="3"/><path d="M162 88c-38 4-51-27-33-32 18-3 29 12 33 32Z" fill="#7e9f75"/><path d="M162 75c-11-34 7-50 19-40 13 11-2 33-19 40Z" fill="#587c5d"/><path d="M162 90c16-32 49-32 46-16-3 18-25 18-46 16Z" fill="#9ab18a"/><path d="m128 45 42-24 27 31-42 4Z" fill="#fff8e4" stroke="#c7bea5" stroke-width="1.5"/><path d="m155 56 15-35-42 24Z" fill="#eee4c9"/><path d="m155 56 20-11 22 7" stroke="#c7bea5" stroke-width="1.5"/></g><g class="room-poster-prop room-poster-prop-snack"><ellipse cx="162" cy="126" rx="61" ry="19" fill="#faf6e6" stroke="#d7d7bb" stroke-width="2"/><path d="M193 88c-7 1-12-4-11-11-7 2-14-3-14-11-32-5-60 22-50 49 11 29 59 33 76 6 7-12 6-24-1-33Z" fill="#d3a66e" stroke="#b98d59" stroke-width="2"/><path d="M128 105c8 20 31 28 51 12" stroke="#dfbb89" stroke-width="3" stroke-linecap="round"/><g fill="#8a6349"><circle cx="137" cy="88" r="4"/><circle cx="155" cy="108" r="5"/><circle cx="173" cy="93" r="3"/><circle cx="179" cy="118" r="3"/><circle cx="135" cy="115" r="3"/><circle cx="154" cy="79" r="3"/></g><path d="m208 69 38 7-5 36-38-7Z" fill="#fffae7"/><path d="m215 80 20 4m-21 4 16 3m-17 5 19 3" stroke="#bdc2a1" stroke-width="2"/><circle cx="201" cy="126" r="3" fill="#b98d59"/></g><g class="room-poster-prop room-poster-prop-elevator"><path d="M123 138V38h76v100" fill="#b7c5aa" stroke="#8b9e80" stroke-width="3"/><path d="M133 138V63h56v75" fill="#e4e8d2" stroke="#8b9e80" stroke-width="2"/><path d="M161 64v74" stroke="#a7b797" stroke-width="2"/><path d="m146 51 6-7 6 7m9-7 6 7 6-7" stroke="#6d8665" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="207" y="77" width="17" height="35" rx="4" fill="#f7f2dd"/><path d="m215 84 2 5 5 1-4 4 1 5-4-3-4 3 1-5-4-4 5-1Z" fill="#d7ad5b"/><path d="M117 139h89" stroke="#7d9472" stroke-width="3" stroke-linecap="round"/></g><path d="M62 34h49a11 11 0 0 1 11 11v9a11 11 0 0 1-11 11H91L80 76V65H62a11 11 0 0 1-11-11v-9a11 11 0 0 1 11-11Z" fill="#fffbed"/><path d="M77 46h20m-20 8h13" stroke="#99a087" stroke-width="2" stroke-linecap="round"/><path d="M219 82h38a10 10 0 0 1 10 10v5a10 10 0 0 1-10 10h-9l-9 10v-10h-20a10 10 0 0 1-10-10v-5a10 10 0 0 1 10-10Z" fill="#e3e9d0"/><circle cx="226" cy="95" r="2" fill="#7b8c6d"/><circle cx="237" cy="95" r="2" fill="#7b8c6d"/><circle cx="248" cy="95" r="2" fill="#7b8c6d"/></svg><span class="room-poster-caption">生活偶尔需要一点无厘头。</span></div>
           <div id="roomStoryContent" class="room-story-content"></div>
           <section id="roomStorybook" class="room-storybook hidden" aria-label="收藏的趣事">
             <h4>我的趣事簿</h4>
             <div id="roomStorybookList"></div>
           </section>
-          <p class="room-story-footnote">剧情由本地脚本演出，不读取工作内容，也不会触发员工任务。</p>
+          <p class="room-story-footnote">小剧场与场景彩蛋是虚构演出，不读取工作内容，也不会触发员工任务。</p>
         </aside>
       </div>
+      <footer class="room-page-footer"><div class="room-state-legend"><span><i class="is-online"></i>在线</span><span><i class="is-busy"></i>忙碌</span><span><i class="is-offline"></i>离线</span><span><i class="is-attention"></i>需处理</span><span class="room-state-note">状态来自真实工作</span></div><span id="roomSummary"></span></footer>
     </section>
   </section>
 

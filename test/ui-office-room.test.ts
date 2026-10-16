@@ -1,22 +1,6 @@
 /**
- * 办公室（全景）：一间会自己动的屋子。
- *
- * 需求原话（第二版）："我看到了你制作的效果，太丑了，太无趣了，太没意思了，先这样改，
- * 一堆头像会到处乱走，然后点击一个头像冒气泡：怎么了老板，然后类似这种话弄上 100 条类似的，
- * 每次点击基本都不一样，先做到这种程度。"
- * 第一版是等距伪 3D 的立体工位，被否掉了（像工程图）——所以那一版的几何测试也一并作废，
- * 这里锁的是**新形态里不能坏的五件事**（其余都是审美，改就是了）：
- *   1. 不丢人：人数 → 档位，超过 50 **一个都不许少**；每个人都得有个头像在场上。
- *   2. 不出屋：走位是脚本按场地尺寸算的，起点与三个绕圈点都必须留在场地内。
- *      一个头像走出屋子，比它站得挤难看一百倍。
- *   3. 点一下有话说：点谁谁冒气泡，台词从 100 条以上的表里取，**连着点不重样**。
- *   4. 刷新不打断：忙闲/未读每几秒变一次，若每次刷新都重建节点，满屋人会一起"卡一下"
- *      （走路的动画全部回到起点）。所以"刷新只改属性、不换节点"要能被证明。
- *   5. 状态是真的：打字=真忙、Zzz=真离线、"!"=真卡住（同一个 deskStallMs 看门狗）、
- *      角标数字=真未读（同一个 state.unread）。**不许编等级/经验/金币来哄人**。
- *
- * 为什么跑 vm 里的真源码而不是替身：这一页的价值全在"与办公区共用同一份数据与同一个入口"上，
- * 替身复刻一份只能证明复刻版对。头像、选人、分组这些**外部**依赖才用替身（它们各自有测试）。
+ * 全景微缩办公室：验证六人工位分页不丢员工、真实状态、独立的本地互动，
+ * 并在真实交付脚本上检查选择、键盘和刷新不重建的边界。
  */
 
 import assert from 'node:assert/strict'
@@ -25,7 +9,7 @@ import vm from 'node:vm'
 
 import { CHUNK_32_OFFICE_ROOM } from '../src/web/script/32-office-room.ts'
 import { renderControlUiScript } from '../src/web/ui.ts'
-import { CSS_SOURCE, MARKUP_SOURCE } from './console-source.ts'
+import { MARKUP_SOURCE } from './console-source.ts'
 
 const SCRIPT = renderControlUiScript()
 
@@ -145,6 +129,7 @@ class FakeNode {
 
   setAttribute(name: string, value: string): void {
     this.attrs.set(name, String(value))
+    if (name === 'class') this.className = String(value)
   }
   getAttribute(name: string): string | null {
     return this.attrs.has(name) ? (this.attrs.get(name) as string) : null
@@ -193,6 +178,11 @@ class FakeNode {
     return found
   }
   private matches(selector: string): boolean {
+    if (selector.startsWith('[')) {
+      const match = selector.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/)
+      if (match === null) return false
+      return match[2] === undefined ? this.attrs.has(match[1] ?? '') : this.getAttribute(match[1] ?? '') === match[2]
+    }
     if (selector.startsWith('.')) return this.classes.has(selector.slice(1))
     if (selector.startsWith('#')) return this.getAttribute('id') === selector.slice(1)
     return this.tagName === selector
@@ -206,6 +196,9 @@ class FakeDocument {
   }
   createElementNS(_ns: string, tagName: string): FakeNode {
     return new FakeNode(tagName)
+  }
+  querySelectorAll(selector: string): FakeNode[] {
+    return this.root.querySelectorAll(selector)
   }
   getElementById(id: string): FakeNode | null {
     return this.root.querySelector(`#${id}`)
@@ -234,6 +227,10 @@ class FakeDate {
   static now(): number {
     return FakeDate.nowMs
   }
+  getMonth(): number { return 9 }
+  getDate(): number { return 16 }
+  getDay(): number { return 5 }
+  getMinutes(): number { return FakeDate.minute }
   getHours(): number {
     return FakeDate.hour
   }
@@ -282,6 +279,24 @@ function makeRoom(options: RoomOptions = {}) {
   summary.setAttribute('id', 'roomSummary')
   doc.root.appendChild(stage)
   doc.root.appendChild(summary)
+  for (const id of ['roomPrevPage', 'roomNextPage', 'roomPageLabel', 'roomStudioName', 'roomDayLabel', 'roomSceneMessage', 'roomEventTitle', 'roomEventText', 'roomSelectedName', 'roomSelectedRole', 'roomSelectedStatus', 'roomSelectedAvatar', 'roomSelectedTalk', 'roomSelectedQuote', 'roomMotionLabel']) {
+    const node = doc.createElement(id.includes('Talk') || id.includes('Page') ? 'button' : 'span')
+    node.setAttribute('id', id)
+    doc.root.appendChild(node)
+  }
+  for (const mode of ['day', 'dusk', 'night']) {
+    const button = doc.createElement('button')
+    button.setAttribute('data-room-light', mode)
+    doc.root.appendChild(button)
+  }
+  for (const action of ['coffee', 'plane', 'plant']) {
+    const button = doc.createElement('button')
+    button.setAttribute('data-room-action', action)
+    doc.root.appendChild(button)
+  }
+  const pause = doc.createElement('button')
+  pause.setAttribute('data-room-ambience', '')
+  doc.root.appendChild(pause)
 
   const employees = (options.employees ?? [employeeOf('a1'), employeeOf('a2')]) as any[]
   const state: any = {
@@ -424,228 +439,181 @@ function many(count: number): Array<Record<string, unknown>> {
   return list
 }
 
-const ROOM_CSS_START = '/* ═══ 办公室（全景）'
-const SKIN_CSS_START = '/* ══════════ 作业室皮肤：形状与质感'
-const ROOM_CSS = (() => {
-  const start = CSS_SOURCE.indexOf(ROOM_CSS_START)
-  const end = CSS_SOURCE.indexOf(SKIN_CSS_START)
-  assert.ok(start >= 0, '样式里找不到全景那一段')
-  assert.ok(end > start, '全景那一段没有在作业室皮肤之前结束')
-  return CSS_SOURCE.slice(start, end)
-})()
-
 const ROOM_MARKUP = (() => {
   const start = MARKUP_SOURCE.indexOf('<section class="col hidden" id="viewOfficeRoom">')
   assert.ok(start >= 0, '标记里找不到全景那一节')
-  const end = MARKUP_SOURCE.indexOf('</section>', MARKUP_SOURCE.indexOf('id="roomFloor"'))
+  const end = MARKUP_SOURCE.indexOf('<section class="col hidden"', start + 1)
   assert.ok(end > start, '全景那一节的收尾没找对')
   return MARKUP_SOURCE.slice(start, end)
 })()
 
-/** 取一条规则的内容（按花括号配对，能穿过 @media 这类嵌套）。 */
-function ruleBody(css: string, selector: string): string {
-  const at = css.indexOf(selector)
-  assert.ok(at >= 0, `样式里找不到 ${selector}`)
-  const open = css.indexOf('{', at)
-  assert.ok(open > 0, `${selector} 后面没有 {`)
-  let depth = 0
-  for (let index = open; index < css.length; index += 1) {
-    if (css[index] === '{') depth += 1
-    else if (css[index] === '}') {
-      depth -= 1
-      if (depth === 0) return css.slice(open + 1, index)
-    }
-  }
-  throw new Error(`${selector} 的花括号没有配对`)
-}
+/* ══════════════════ 1. 六人工位与工作室分页 ══════════════════ */
 
-/** CSS 里的声明（"这条规则真的写了这个属性"这样断言，别只断言字符串出现过）。
- *  注释必须先剥掉：注释里为了讲清道理常常会写出属性名，不剥掉就会把注释当成声明。 */
-function hasDecl(body: string, property: string, value?: string): boolean {
-  return body
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split(';')
-    .map((part) => part.trim())
-    .filter((part) => part !== '')
-    .some((part) => {
-      const colon = part.indexOf(':')
-      if (colon < 0) return false
-      const name = part.slice(0, colon).trim()
-      if (name !== property) return false
-      if (value === undefined) return true
-      return part.slice(colon + 1).trim().replace(/\s+/g, ' ') === value
-    })
-}
-
-/** 从 @keyframes 里取某一帧的声明（关键帧里是嵌套块，不能按 ';' 直接切）。 */
-function keyframeStep(name: string, step: string): string {
-  const frames = ruleBody(ROOM_CSS, `@keyframes ${name}`)
-  const at = frames.indexOf(step + ' {')
-  assert.ok(at >= 0, `${name} 里没有 ${step} 这一帧`)
-  const open = frames.indexOf('{', at)
-  const close = frames.indexOf('}', open)
-  assert.ok(close > open, `${name} 的 ${step} 帧没有收尾`)
-  return frames.slice(open + 1, close)
-}
-
-/* ══════════════════ 1. 人数 → 档位与撒点 ══════════════════ */
-
-describe('办公室全景：人数 → 档位与撒点', () => {
-  it('10/20/30/40/50 各落一档', () => {
-    const cases: Array<[number, string, number]> = [
-      [10, 't10', 72],
-      [20, 't20', 62],
-      [30, 't30', 54],
-      [40, 't40', 48],
-      [50, 't50', 42]
-    ]
-    for (const [count, tier, avatar] of cases) {
+describe('办公室全景：六人工位与工作室分页', () => {
+  it('任何规模的名册都完整分配，超过 50 人也没有遗漏或重复', () => {
+    for (const count of [0, 1, 6, 7, 10, 50, 51, 80, 200]) {
       const room = makeRoom({ employees: many(count) })
-      room.call('renderOfficeRoom')
-      assert.equal(room.stage.getAttribute('data-tier'), tier, `${count} 人应当落在 ${tier}`)
-      assert.equal(cssNumber(room.stage, '--walker-av'), avatar, `${count} 人的头像尺寸`)
-    }
-  })
-
-  it('超过 50 人一个都不许少（回落到最密的一档）', () => {
-    for (const count of [51, 80, 200]) {
-      const room = makeRoom({ employees: many(count) })
-      room.call('renderOfficeRoom')
-      assert.equal(room.stage.getAttribute('data-tier'), 't50')
-      assert.equal(walkers(room.scene).length, count, `${count} 个人里少了人`)
-    }
-  })
-
-  it('一个人一个头像，位置互不相同', () => {
-    const room = makeRoom({ employees: many(24), stage: { w: 1200, h: 700 } })
-    room.call('renderOfficeRoom')
-    const list = walkers(room.scene)
-    assert.equal(list.length, 24)
-    const ids = new Set(list.map((walker) => walker.getAttribute('data-emp')))
-    assert.equal(ids.size, 24, '有重复的人')
-    const xs = new Set(list.map((walker) => walker.style.getPropertyValue('--w-x')))
-    assert.ok(xs.size >= 18, `站位太集中了：只有 ${xs.size} 个不同的横坐标`)
-  })
-
-  it('起点与三个绕圈点都留在场地内（不会走出屋子）', () => {
-    for (const [count, w, h] of [
-      [10, 900, 600],
-      [50, 1400, 800],
-      [30, 360, 260]
-    ] as Array<[number, number, number]>) {
-      const room = makeRoom({ employees: many(count), stage: { w, h } })
-      room.call('renderOfficeRoom')
-      const avatar = cssNumber(room.stage, '--walker-av')
-      const half = avatar / 2
-      for (const walker of walkers(room.scene)) {
-        const x = cssNumber(walker, '--w-x')
-        const y = cssNumber(walker, '--w-y')
-        const points = [
-          { x, y },
-          { x: x + cssNumber(walker, '--w-1x'), y: y + cssNumber(walker, '--w-1y') },
-          { x: x + cssNumber(walker, '--w-2x'), y: y + cssNumber(walker, '--w-2y') },
-          { x: x + cssNumber(walker, '--w-3x'), y: y + cssNumber(walker, '--w-3y') }
-        ]
-        for (const point of points) {
-          assert.ok(
-            point.x - half >= -0.51 && point.x + half <= w + 0.51,
-            `${count} 人 ${w}×${h}：横坐标 ${point.x} 让头像出界了`
-          )
-          assert.ok(
-            point.y - half >= -0.51 && point.y + half <= h + 0.51,
-            `${count} 人 ${w}×${h}：纵坐标 ${point.y} 让头像出界了`
-          )
-        }
+      const pages = room.call<number>('roomPageCount', count)
+      assert.equal(pages, Math.max(1, Math.ceil(count / 6)))
+      const found: string[] = []
+      for (let page = 0; page < pages; page += 1) {
+        room.view().page = page
+        room.call('renderOfficeRoom')
+        const list = walkers(room.scene)
+        assert.ok(list.length <= 6, '每间工作室最多六位员工')
+        found.push(...list.map((walker) => walker.getAttribute('data-emp') || ''))
       }
+      assert.deepEqual(found, many(count).map((employee) => employee.id))
+      assert.equal(new Set(found).size, count)
     }
   })
 
-  it('同一份数据每次渲染得到同一套走位（刷新不该换个人站你面前）', () => {
-    const first = makeRoom({ employees: many(12), stage: { w: 1000, h: 600 } })
-    first.call('renderOfficeRoom')
-    const second = makeRoom({ employees: many(12), stage: { w: 1000, h: 600 } })
-    second.call('renderOfficeRoom')
-    const positions = (room: ReturnType<typeof makeRoom>) =>
-      walkers(room.scene).map((walker) => `${walker.style.getPropertyValue('--w-x')}|${walker.style.getPropertyValue('--w-y')}`)
-    assert.deepEqual(positions(first), positions(second))
+  it('下一间与上一间按钮按办公区顺序翻页，边界禁用且页码准确', () => {
+    const room = makeRoom({ employees: many(8) })
+    room.sections[0] = { key: '', name: '排好序', members: [...room.state.employees].reverse() }
+    room.call('renderOfficeRoom')
+    const prev = one(room.doc.root, '#roomPrevPage')
+    const next = one(room.doc.root, '#roomNextPage')
+    assert.equal(prev.disabled, true)
+    assert.equal(next.disabled, false)
+    assert.equal(one(room.doc.root, '#roomPageLabel').textContent, '01 / 02')
+    assert.deepEqual(walkers(room.scene).map((walker) => walker.getAttribute('data-emp')), ['e7', 'e6', 'e5', 'e4', 'e3', 'e2'])
+    click(next)
+    assert.equal(prev.disabled, false)
+    assert.equal(next.disabled, true)
+    assert.equal(one(room.doc.root, '#roomPageLabel').textContent, '02 / 02')
+    assert.equal(one(room.doc.root, '#roomStudioName').textContent, '02 号工作室')
+    assert.deepEqual(walkers(room.scene).map((walker) => walker.getAttribute('data-emp')), ['e1', 'e0'])
+    click(prev)
+    assert.equal(room.view().page, 0)
+    assert.equal(room.selected.length, 0, '翻页不能进入真实会话')
   })
 
-  it('场地尺寸变了要重新撒一遍（不然人挤在一角）', () => {
-    const room = makeRoom({ employees: many(12), stage: { w: 900, h: 600 } })
+  it('分组目录尚未跟上时，追加新员工也会出现在名册中', () => {
+    const employees = many(6)
+    const room = makeRoom({ employees })
+    room.sections[0] = { key: '', name: '旧分组', members: employees.slice() }
+    room.state.employees.push(employeeOf('fresh'))
+    room.view().page = 1
     room.call('renderOfficeRoom')
-    const before = walkers(room.scene).map((walker) => walker.style.getPropertyValue('--w-x')).join(',')
-    room.stage.clientWidth = 1600
-    room.stage.clientHeight = 700
+    assert.deepEqual(walkers(room.scene).map((walker) => walker.getAttribute('data-emp')), ['fresh'])
+  })
+
+  it('删除最后一间工作室的员工时自动回到有效页', () => {
+    const employees = many(7)
+    const room = makeRoom({ employees })
+    room.view().page = 1
     room.call('renderOfficeRoom')
-    assert.equal(cssNumber(room.scene, '--room-w'), 1600)
-    const after = walkers(room.scene).map((walker) => walker.style.getPropertyValue('--w-x')).join(',')
-    assert.notEqual(before, after, '场地变宽了但走位没重排')
+    employees.splice(6, 1)
+    room.call('renderOfficeRoom')
+    assert.equal(room.view().page, 0)
+    assert.equal(walkers(room.scene).length, 6)
+    assert.equal(one(room.doc.root, '#roomPageLabel').textContent, '01 / 01')
+  })
+
+  it('人物落在六个等距工位锚点，家具拥有独立的静态 SVG', () => {
+    const room = makeRoom({ employees: many(6) })
+    room.call('renderOfficeRoom')
+    const anchors = [[444, 335], [568, 395], [692, 455], [306, 405], [430, 465], [554, 525]]
+    walkers(room.scene).forEach((walker, index) => {
+      const point = at(anchors, index)
+      assert.ok(Math.abs(cssNumber(walker, 'left') * 10 - at(point, 0)) < 0.001)
+      assert.ok(Math.abs(cssNumber(walker, 'top') * 7.2 - at(point, 1)) < 0.001)
+      assert.equal(one(one(walker, '.room-desk-object'), 'svg').getAttribute('viewBox'), '0 0 170 130')
+      assert.ok(one(walker, '.walker-torso'))
+      assert.ok(one(walker, '.walker-role'))
+    })
   })
 })
 
-/* ══════════════════ 2. 走位是动画，不是定时器 ══════════════════ */
+/* ══════════════════ 2. 本地装饰互动与观景选择 ══════════════════ */
 
-describe('办公室全景：走位与动画', () => {
-  it('每个人都有自己的速度与相位（不会像仪仗队一样同步）', () => {
-    const room = makeRoom({ employees: many(30), stage: { w: 1100, h: 700 } })
+describe('办公室全景：本地小互动', () => {
+  it('咖啡、纸飞机、绿萝各有不同的本地剧情，重播有变化，员工状态保持真实', () => {
+    const room = makeRoom({ employees: many(6), desk: { e0: { busy: true } }, unread: { e1: 4 } })
     room.call('renderOfficeRoom')
-    const durations = new Set<string>()
-    for (const walker of walkers(room.scene)) {
-      const duration = Number(walker.style.getPropertyValue('--walk-dur').replace('s', ''))
-      assert.ok(duration >= 13 && duration <= 31, `一圈 ${duration} 秒不合适（太快像被追，太慢像卡住）`)
-      assert.ok(cssNumber(walker, '--walk-delay') <= 0, '相位应当是负的（他已经在路上了）')
-      durations.add(String(duration))
+    const first = at(walkers(room.scene), 0)
+    const deskBefore = JSON.stringify(room.state.desk)
+    const unreadBefore = JSON.stringify(room.state.unread)
+    const narratives = new Set<string>()
+    for (const action of ['coffee', 'plane', 'plant']) {
+      const button = one(room.doc.root, '[data-room-action="' + action + '"]')
+      click(button)
+      const firstText = one(room.doc.root, '#roomSceneMessage').textContent
+      assert.ok(firstText.length > 12)
+      assert.equal(one(room.doc.root, '#roomEventText').textContent, '场景彩蛋 · 一段办公室里的即兴小插曲。')
+      assert.ok(ROOM_MARKUP.includes('小剧场与场景彩蛋是虚构演出'))
+      assert.equal(room.stage.getAttribute('data-event'), action)
+      assert.equal(first.getAttribute('data-talk'), '1')
+      narratives.add(firstText)
+      click(button)
+      assert.notEqual(one(room.doc.root, '#roomSceneMessage').textContent, firstText)
     }
-    assert.ok(durations.size >= 6, `速度太单一：只有 ${durations.size} 种`)
+    assert.equal(narratives.size, 3)
+    assert.equal(room.selected.length, 0, '装饰互动不应向员工发送消息或启动真实会话')
+    assert.equal(JSON.stringify(room.state.desk), deskBefore)
+    assert.equal(JSON.stringify(room.state.unread), unreadBefore)
+    assert.equal(first.getAttribute('data-lamp'), 'busy')
+    assert.equal(first.getAttribute('data-pose'), 'type')
+    room.runTimers()
+    assert.equal(room.stage.getAttribute('data-event'), '')
   })
 
-  it('走位用 translate 的闭环动画，没有定时器在算位置', () => {
-    for (const step of ['0%', '25%', '50%', '75%', '100%']) {
-      const frame = keyframeStep('walk-loop', step)
-      assert.ok(hasDecl(frame, 'translate'), `walk-loop 的 ${step} 帧没有位移`)
-    }
-    assert.equal(
-      keyframeStep('walk-loop', '0%'),
-      keyframeStep('walk-loop', '100%'),
-      '起点与终点必须重合（否则一圈走完会跳回原点）'
-    )
-    const middle = keyframeStep('walk-loop', '50%')
-    for (const name of ['--w-2x', '--w-2y']) {
-      assert.ok(middle.includes(name), `walk-loop 没用到 ${name}`)
-    }
-    for (const step of ['25%', '75%']) {
-      const frame = keyframeStep('walk-loop', step)
-      assert.ok(frame.includes('--w-1') || frame.includes('--w-3'), `${step} 没有对应的绕圈点`)
-    }
-    const frames = ruleBody(ROOM_CSS, '@keyframes walk-loop').replace(/\/\*[\s\S]*?\*\//g, '')
-    assert.ok(!/\b(left|top|margin)\s*:/.test(frames), '走路不能动画 left/top（那是主线程上的布局）')
-    const walker = ruleBody(ROOM_CSS, '.walker {')
-    assert.ok(walker.includes('walk-loop'), '.walker 没有跑 walk-loop')
-    assert.ok(walker.includes('infinite'), '走路应当是无限循环')
-    assert.ok(hasDecl(walker, 'will-change', 'translate'), '应当提前声明 translate 会被反复动')
-    const room = makeRoom({ employees: many(3) })
+  it('白天、黄昏、夜晚按钮选中态准确，轮询不会覆盖手动天色', () => {
+    const room = makeRoom()
     room.call('renderOfficeRoom')
-    assert.equal(room.calls.interval, 1, '除了"十分钟看一次天色"，这页不该有别的定时器')
-  })
-
-  it('起伏与影子跟着走，用的是独立属性（不与走路的 translate 打架）', () => {
-    assert.ok(
-      hasDecl(keyframeStep('walk-bob', '50%'), 'translate', '0 -5px'),
-      '起伏应当在独立的 translate 上'
-    )
-    const bob = ruleBody(ROOM_CSS, '@keyframes walk-bob').replace(/\/\*[\s\S]*?\*\//g, '')
-    assert.ok(!bob.includes('transform'), '用 transform 会和走路的 translate 叠在一起')
-    assert.ok(keyframeStep('walk-shadow', '50%').includes('scale'))
-  })
-
-  it('动效敏感的人看到的是静止的一屋子（走路也停）', () => {
-    const reduce = ROOM_CSS.slice(ROOM_CSS.indexOf('@media (prefers-reduced-motion: reduce)'))
-    assert.ok(reduce.includes('.walker'), '走路没有列进静止名单')
-    assert.ok(reduce.includes('animation: none'), '没有把动画停掉')
-    assert.ok(reduce.includes('translate: none'), '没有把位移清掉（否则会停在半路）')
-    for (const part of ['.walker-body', '.walker-shadow', '.walker-prop']) {
-      assert.ok(reduce.includes(part), `${part} 没被停掉`)
+    for (const part of ['night', 'day', 'dusk']) {
+      const button = one(room.doc.root, '[data-room-light="' + part + '"]')
+      click(button)
+      assert.equal(room.stage.getAttribute('data-daypart'), part)
+      assert.equal(button.getAttribute('aria-pressed'), 'true')
+      const other = one(room.doc.root, '[data-room-light="' + (part === 'night' ? 'day' : 'night') + '"]')
+      assert.equal(other.getAttribute('aria-pressed'), 'false')
     }
+    FakeDate.hour = 23
+    at(room.intervals, 0)()
+    assert.equal(room.stage.getAttribute('data-daypart'), 'dusk')
+    assert.equal(room.selected.length, 0)
+    FakeDate.hour = 10
+  })
+
+  it('每次彩蛋只由一位同事接话，轮换发言者并同步人物卡，不触发真实会话', () => {
+    const room = makeRoom({ employees: many(6) })
+    room.call('renderOfficeRoom')
+    const coffee = one(room.doc.root, '[data-room-action="coffee"]')
+    const list = walkers(room.scene)
+    for (let index = 0; index < 8; index += 1) {
+      click(coffee)
+      const open = list.filter((walker) => walker.getAttribute('data-talk') === '1')
+      assert.equal(open.length, 1, '彩蛋不能同时撑开多个气泡')
+      assert.equal(at(open, 0), at(list, index % 6), '重复彩蛋应轮换接话的同事')
+      assert.equal(one(room.doc.root, '#roomSelectedName').textContent, '同事e' + String(index % 6))
+      assert.ok(one(room.doc.root, '#roomSelectedQuote').textContent.includes(lineOf(at(open, 0))))
+    }
+    assert.equal(room.state.selectedEmployeeId, '')
+    assert.equal(room.selected.length, 0)
+  })
+
+  it('暂停按钮只停止装饰动效，不更改员工或进入会话', () => {
+    const room = makeRoom({ employees: many(2), desk: { e0: { busy: true } } })
+    room.call('renderOfficeRoom')
+    const before = JSON.stringify(room.state)
+    const pause = one(room.doc.root, '[data-room-ambience]')
+    click(pause)
+    assert.equal(room.stage.getAttribute('data-paused'), 'true')
+    assert.equal(pause.getAttribute('aria-pressed'), 'true')
+    assert.equal(one(room.doc.root, '#roomMotionLabel').textContent, '继续小动作')
+    click(pause)
+    assert.equal(room.stage.getAttribute('data-paused'), 'false')
+    assert.equal(pause.getAttribute('aria-pressed'), 'false')
+    assert.equal(JSON.stringify(room.state), before)
+    assert.equal(room.selected.length, 0)
+  })
+
+  it('日期标题展示本地日期、星期与时间', () => {
+    const room = makeRoom()
+    room.call('renderOfficeRoom')
+    assert.equal(one(room.doc.root, '#roomDayLabel').textContent, '10 月 16 日 · 星期五 · 10:30')
   })
 })
 
@@ -697,17 +665,21 @@ describe('办公室全景：点一下他说句话', () => {
       click(walker)
       return lineOf(walker)
     })
-    assert.ok(new Set(said).size >= 8, `十个人说出了 ${new Set(said).size} 种话，撞得太厉害`)
+    assert.ok(new Set(said).size >= 5, `六个人说出了 ${new Set(said).size} 种话，撞得太厉害`)
   })
 
   it('气泡过一会儿自己收回去', () => {
     const room = makeRoom({ employees: [employeeOf('a1')] })
     room.call('renderOfficeRoom')
     const walker = at(walkers(room.scene), 0)
+    const talk = one(walker, '.walker-talk')
+    assert.equal(talk.getAttribute('tabindex'), '-1', '隐藏的气泡按钮不能占用 Tab 顺序')
     click(walker)
+    assert.equal(talk.getAttribute('tabindex'), '0', '显示气泡后按钮应当可以由键盘进入')
     assert.equal(room.lastTimerMs(), TALK_MS, '收回去的时间与 ROOM_TALK_MS 不一致')
     assert.equal(room.runTimers(), 1)
     assert.equal(walker.getAttribute('data-talk'), '0', '时间到了气泡还挂着')
+    assert.equal(talk.getAttribute('tabindex'), '-1', '气泡收起后按钮应当退出 Tab 顺序')
   })
 
   it('连点两次不会留下两个定时器（后一次接管）', () => {
@@ -717,6 +689,26 @@ describe('办公室全景：点一下他说句话', () => {
     click(walker)
     click(walker)
     assert.equal(room.pending(), 1, `攒了 ${room.pending()} 个定时器`)
+  })
+
+  it('点另一位同事会收起前一个气泡、移出其按钮的 Tab 顺序并取消旧计时', () => {
+    const room = makeRoom({ employees: many(3) })
+    room.call('renderOfficeRoom')
+    const list = walkers(room.scene)
+    const first = at(list, 0)
+    const second = at(list, 1)
+    click(first)
+    const firstLine = lineOf(first)
+    click(second)
+    assert.equal(list.filter((walker) => walker.getAttribute('data-talk') === '1').length, 1)
+    assert.equal(first.getAttribute('data-talk'), '0')
+    assert.equal(one(first, '.walker-talk').getAttribute('tabindex'), '-1')
+    assert.equal(second.getAttribute('data-talk'), '1')
+    assert.equal(one(second, '.walker-talk').getAttribute('tabindex'), '0')
+    assert.equal(lineOf(first), firstLine, '收起只改变显示，不删除前一句话')
+    assert.equal(room.pending(), 1, '前一位同事的气泡计时应当取消')
+    assert.equal(room.runTimers(), 1)
+    assert.equal(second.getAttribute('data-talk'), '0')
   })
 
   it('气泡头部写的是这个人此刻的真实姓名与状态', () => {
@@ -758,6 +750,22 @@ describe('办公室全景：点一下他说句话', () => {
     assert.equal(walker.getAttribute('data-talk'), null, '点按钮不该顺手冒出气泡')
   })
 
+  it('气泡按钮的键盘事件不被外层头像截走，保留按钮的原生激活行为', () => {
+    const room = makeRoom({ employees: [employeeOf('a1')] })
+    room.call('renderOfficeRoom')
+    const walker = at(walkers(room.scene), 0)
+    click(walker)
+    const talk = one(walker, '.walker-talk')
+    const line = lineOf(walker)
+    let prevented = 0
+    for (const key of ['Enter', ' ']) walker.onkeydown({ key, target: talk, preventDefault: () => (prevented += 1) })
+    assert.equal(prevented, 0, '外层不能取消子按钮的 Enter / 空格默认行为')
+    assert.equal(lineOf(walker), line, '按子按钮不能让外层重新说话')
+    assert.equal(room.selected.length, 0)
+    click(talk, { stopPropagation: () => {} })
+    assert.deepEqual(room.selected, ['a1'], '键盘产生的原生点击仍能进入真实会话')
+  })
+
   it('双击头像直接进对话（想干活的人不用先听一句话）', () => {
     const room = makeRoom({ employees: [employeeOf('a7')] })
     room.call('renderOfficeRoom')
@@ -785,7 +793,7 @@ describe('办公室全景：点一下他说句话', () => {
     const box = one(one(walker, '.walker-face'), '.desk-avatar-box')
     assert.equal(box.getAttribute('data-avatar-for'), 'a1')
     assert.equal(room.calls.ensureAvatar, 1, '应当去要一次头像（否则全是线稿脸）')
-    assert.ok(!ROOM_CSS.includes('url('), '样式里出现了图片地址')
+    assert.equal(one(walker, '.walker-fiction').textContent, '即兴台词')
   })
 })
 
@@ -878,9 +886,9 @@ describe('办公室全景：状态与真实数据', () => {
   })
 })
 
-/* ══════════════════ 5. 刷新不打断走位 ══════════════════ */
+/* ══════════════════ 5. 刷新保留人物与工位 ══════════════════ */
 
-describe('办公室全景：刷新不打断走位', () => {
+describe('办公室全景：刷新保留人物与工位', () => {
   it('忙闲/未读变了只改属性，节点一个都不换（动画不会回到起点）', () => {
     const room = makeRoom({ employees: many(6), desk: {} })
     room.call('renderOfficeRoom')
@@ -929,16 +937,17 @@ describe('办公室全景：刷新不打断走位', () => {
     assert.deepEqual([...ids].sort(), ['e1', 'e2', 'e3', 'e4'])
     assert.equal(room.summary.textContent, '4 位同事')
   })
-  it('场地尺寸变了才重建（走位本来就要重排）', () => {
+  it('窗口宽度变动只调整比例，工位和人物都不重建', () => {
     const room = makeRoom({ employees: many(5), stage: { w: 900, h: 600 } })
     room.call('renderOfficeRoom')
     const first = at(walkers(room.scene), 0)
     room.stage.clientWidth = 1400
     room.call('renderOfficeRoom')
-    assert.notEqual(at(walkers(room.scene), 0), first)
+    assert.equal(at(walkers(room.scene), 0), first)
+    assert.equal(cssNumber(room.stage, '--office-scale'), 1.4)
   })
 
-  it('窗口尺寸变了会自动重排（只在正看着这一页时动手）', () => {
+  it('窗口尺寸变了自动调整场景比例（只在正看着这一页时动手）', () => {
     const room = makeRoom({ employees: many(5), stage: { w: 900, h: 600 } })
     room.call('renderOfficeRoom')
     const before = at(walkers(room.scene), 0)
@@ -948,8 +957,8 @@ describe('办公室全景：刷新不打断走位', () => {
     assert.equal(at(walkers(room.scene), 0), before, '不在这一页时不该重排')
     room.state.view = 'officeRoom'
     room.resize()
-    assert.notEqual(at(walkers(room.scene), 0), before, '回到这一页后应当重排')
-    assert.equal(cssNumber(room.scene, '--room-w'), 1500)
+    assert.equal(at(walkers(room.scene), 0), before, '人物节点保持原位')
+    assert.equal(cssNumber(room.stage, '--office-scale'), 1.5)
   })
 
   it('只有正看着这一页才跟着数据重画', () => {
@@ -1006,73 +1015,75 @@ describe('办公室全景：天色与空场景', () => {
     const offline = makeRoom({ employees: [], phase: 'offline' })
     offline.call('renderOfficeRoom')
     assert.ok(one(offline.scene, '.empty').textContent.includes('未连接'))
+    offline.state.phase = 'ready'
+    offline.call('renderOfficeRoom')
+    assert.ok(one(offline.scene, '.empty').textContent.includes('暂无员工'))
+    assert.ok(!one(offline.scene, '.empty').textContent.includes('未连接'))
   })
 })
 
-/* ══════════════════ 7. 样式契约（看得见的部分） ══════════════════ */
+/* ══════════════════ 7. 本地选择与真实会话的边界 ══════════════════ */
 
-describe('办公室全景：样式契约', () => {
-  it('浅色 / 深色两套天色都写全了', () => {
-    for (const name of [
-      '--scene-sky-1',
-      '--scene-sky-2',
-      '--scene-ground',
-      '--scene-shadow',
-      '--scene-ring',
-      '--scene-tint',
-      '--scene-bubble',
-      '--scene-bubble-ink',
-      '--scene-bubble-edge'
-    ]) {
-      const count = ROOM_CSS.split(name + ':').length - 1
-      assert.ok(count >= 2, `${name} 只在一套主题里定义（浅色/深色各要一份）`)
+describe('办公室全景：本地选择与真实会话', () => {
+  it('场景矢量图的片段引用在整页里只有一个目标，不会撞上办公区容器', () => {
+    const sceneStart = MARKUP_SOURCE.indexOf('id="viewOfficeRoom"')
+    const sceneEnd = MARKUP_SOURCE.indexOf('id="viewApprovals"', sceneStart)
+    const sceneMarkup = MARKUP_SOURCE.slice(sceneStart, sceneEnd)
+    const references = [...sceneMarkup.matchAll(/(?:url\(#|href="#)([A-Za-z][\w-]*)/g)].map((match) => match[1])
+    assert.ok(references.length > 0, '场景应当包含实际的 SVG 渐变与图形引用')
+    for (const id of references) {
+      assert.equal(MARKUP_SOURCE.split('id="' + id + '"').length - 1, 1, 'SVG 引用 ' + id + ' 的目标必须在整页唯一')
     }
   })
 
-  it('四个时段都有罩色，夜里最重', () => {
-    for (const part of ['dawn', 'day', 'dusk', 'night']) {
-      const body = ruleBody(ROOM_CSS, `.room[data-daypart="${part}"]`)
-      assert.ok(body.includes('--scene-tint'), `${part} 没有罩色`)
-    }
-    const night = ruleBody(ROOM_CSS, '.room[data-daypart="night"]')
-    const alpha = Number((night.match(/rgba\([^)]*?([\d.]+)\)/) || [])[1])
-    assert.ok(alpha >= 0.3, `夜里的罩色太淡（${alpha}）`)
+  it('移除最后一位员工会清空旧台词，人物卡回到中性的等待状态', () => {
+    const employees = [employeeOf('last', { name: '米粒' })]
+    const room = makeRoom({ employees })
+    room.call('renderOfficeRoom')
+    click(at(walkers(room.scene), 0))
+    const quote = one(room.doc.root, '#roomSelectedQuote')
+    assert.ok(quote.textContent.includes('即兴台词'))
+    employees.splice(0, 1)
+    room.call('renderOfficeRoom')
+    assert.equal(quote.textContent, '等待同事入座，一起创造办公室里的小故事。')
+    assert.equal(one(room.doc.root, '#roomSelectedName').textContent, '等待同事入座')
+    assert.equal(one(room.doc.root, '#roomSelectedTalk').disabled, true)
+    assert.equal(one(room.doc.root, '#roomSelectedTalk').onclick, null)
+    assert.equal(one(room.doc.root, '#roomSelectedAvatar').children.length, 0)
+    assert.equal(room.selected.length, 0)
   })
 
-  it('藏起来的气泡与姓名不参与点击（不然会挡住后面的人）', () => {
-    const bubble = ruleBody(ROOM_CSS, '.walker-bubble {')
-    assert.ok(hasDecl(bubble, 'pointer-events', 'none'), '气泡默认必须放过点击')
-    const open = ruleBody(ROOM_CSS, '.walker[data-talk="1"] .walker-bubble')
-    assert.ok(hasDecl(open, 'pointer-events', 'auto'), '气泡打开后要被点到（里面还有按钮）')
-    const name = ruleBody(ROOM_CSS, '.walker-name {')
-    assert.ok(hasDecl(name, 'pointer-events', 'none'), '隐形的姓名牌会挡住别人')
-    assert.ok(hasDecl(name, 'opacity', '0'), '姓名牌默认应当隐身（人多了会糊成一团）')
+  it('默认选择第一位，单击更新人物卡与气泡，不触发真实对话', () => {
+    const room = makeRoom({ employees: [employeeOf('a', { name: '米粒', role: '内容策划' }), employeeOf('b', { name: '阿树', role: '开发工程师' })], desk: { b: { busy: true } } })
+    room.call('renderOfficeRoom')
+    assert.equal(one(room.doc.root, '#roomSelectedName').textContent, '米粒')
+    const list = walkers(room.scene)
+    click(at(list, 1))
+    assert.equal(one(room.doc.root, '#roomSelectedName').textContent, '阿树')
+    assert.equal(one(room.doc.root, '#roomSelectedRole').textContent, '开发工程师')
+    assert.equal(one(room.doc.root, '#roomSelectedStatus').textContent, '忙碌')
+    assert.equal(at(list, 0).classList.contains('active'), false)
+    assert.equal(at(list, 1).classList.contains('active'), true)
+    assert.equal(at(list, 1).getAttribute('aria-pressed'), 'true')
+    assert.ok(one(room.doc.root, '#roomSelectedQuote').textContent.includes('即兴台词'))
+    assert.equal(room.state.selectedEmployeeId, '', '本地观景选择不改真实会话选择')
+    assert.equal(room.selected.length, 0)
+    click(one(room.doc.root, '#roomSelectedTalk'))
+    assert.deepEqual(room.selected, ['b'])
   })
 
-  it('小灯四色齐全，未读角标有自己的颜色', () => {
-    for (const lamp of ['ok', 'busy', 'bad', 'off']) {
-      const body = ruleBody(ROOM_CSS, `.walker[data-lamp="${lamp}"] .walker-dot`)
-      assert.ok(body.includes('background'), `${lamp} 这颗灯没有颜色`)
-    }
-    assert.ok(ruleBody(ROOM_CSS, '.walker-badge {').includes('background'))
-  })
-
-  it('说明里写清了"点一下说话、双击进对话"', () => {
-    assert.ok(ROOM_MARKUP.includes('点一下谁'), '说明里没写点一下会怎样')
-    assert.ok(ROOM_MARKUP.includes('双击'), '说明里没写双击')
-    assert.ok(ROOM_MARKUP.includes('聊两句'), '说明里没写气泡里的入口')
-  })
-
-  it('场地、门牌、场景层三个容器都还在（导航与脚本按 id 找它们）', () => {
-    for (const id of ['roomRoom', 'roomFloor', 'roomSummary']) {
-      assert.ok(ROOM_MARKUP.includes(`id="${id}"`), `标记里缺 #${id}`)
-    }
-    assert.ok(!ROOM_MARKUP.includes('roomMini'), '小地图已经去掉了，标记里不该留着')
-  })
-
-  it('窄屏有自己的一套尺寸（气泡不该在小屏上撑破）', () => {
-    const narrow = ROOM_CSS.slice(ROOM_CSS.indexOf('@media (max-width: 720px)'))
-    assert.ok(narrow.includes('.room'), '窄屏没有调整场地')
-    assert.ok(narrow.includes('.walker-bubble'), '窄屏没有调整气泡')
+  it('状态刷新会更新人物卡，且不会替换人物、家具和头像节点', () => {
+    const room = makeRoom({ employees: many(3) })
+    room.call('renderOfficeRoom')
+    const person = at(walkers(room.scene), 0)
+    const furniture = one(person, '.room-desk-object')
+    const avatar = one(one(room.doc.root, '#roomSelectedAvatar'), '.desk-avatar-box')
+    room.state.desk.e0 = { busy: true }
+    room.state.unread.e0 = 2
+    room.call('renderOfficeRoom')
+    assert.equal(at(walkers(room.scene), 0), person)
+    assert.equal(one(person, '.room-desk-object'), furniture)
+    assert.equal(one(one(room.doc.root, '#roomSelectedAvatar'), '.desk-avatar-box'), avatar)
+    assert.equal(one(room.doc.root, '#roomSelectedStatus').textContent, '忙碌 · 2 条未读')
   })
 })

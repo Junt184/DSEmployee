@@ -9,6 +9,7 @@ import { applyLlmToSession } from './employee-llm.ts'
 import { SessionArchiveStore } from './session-archive.ts'
 import { FILE_DELIVERY_TEXT } from './file-delivery.ts'
 import { browseProjectDirectories } from './directories.ts'
+import { prepareEmployeeContext } from './employee-context.ts'
 import { historyEntrySeq, pageEvents, sanitizeHistoryEvents } from './session-payload.ts'
 
 export interface ProjectRecord {
@@ -27,6 +28,9 @@ export interface ProjectSession {
   nodeId: string
   employeeId?: string
   employeeName?: string
+  /** 员工主目录与执行目录独立，记录新会话实际装配的位置。 */
+  employeeHome?: string
+  employeeContextVersion?: 1
   createdAtMs: number
   archivedAtMs?: number
   setupError?: string
@@ -54,6 +58,8 @@ export class ProjectStore {
           typeof s.instructions !== 'string' || !Number.isFinite(s.createdAtMs) ||
           !data.projects.some(p => p.projectId === s.projectId) ||
           (s.employeeId !== undefined && typeof s.employeeId !== 'string') ||
+          (s.employeeHome !== undefined && (typeof s.employeeHome !== 'string' || !path.isAbsolute(s.employeeHome))) ||
+          (s.employeeContextVersion !== undefined && s.employeeContextVersion !== 1) ||
           (s.setupError !== undefined && typeof s.setupError !== 'string') ||
           (s.archivedAtMs !== undefined && !Number.isFinite(s.archivedAtMs))) ||
         new Set(data.projects.map(p => p.projectId)).size !== data.projects.length ||
@@ -170,13 +176,14 @@ export class ProjectRuntime {
   readonly #dsh: DshClient
   readonly #employees: EmployeeStore
   readonly #defaultPreset: string | undefined
+  readonly #dshHome: string | undefined
   readonly #watch: (sessionId: string, employeeId: string | undefined, watching: boolean) => void
   readonly #log: (message: string) => void
 
-  constructor(options: { store: ProjectStore; dsh: DshClient; employees: EmployeeStore; defaultPreset?: string;
+  constructor(options: { store: ProjectStore; dsh: DshClient; employees: EmployeeStore; defaultPreset?: string; dshHome?: string;
     watch: (sessionId: string, employeeId: string | undefined, watching: boolean) => void; log: (message: string) => void }) {
     this.store = options.store; this.#dsh = options.dsh; this.#employees = options.employees
-    this.#defaultPreset = options.defaultPreset; this.#watch = options.watch; this.#log = options.log
+    this.#defaultPreset = options.defaultPreset; this.#dshHome = options.dshHome; this.#watch = options.watch; this.#log = options.log
   }
   handles(method: string, params: Record<string, unknown>): boolean {
     return method.startsWith('project.') || (PROJECT_SESSION_METHODS.has(method) &&
@@ -188,6 +195,7 @@ export class ProjectRuntime {
     const project = this.store.project(binding.projectId)
     return { ...row, projectId: project.projectId, projectName: project.name, projectPath: project.path,
       nodeId: binding.nodeId, employeeId: binding.employeeId, employeeName: binding.employeeName,
+      employeeHome: binding.employeeHome, employeeContextVersion: binding.employeeContextVersion,
       createdAtMs: binding.createdAtMs,
       setupError: binding.setupError,
       archived: binding.archivedAtMs !== undefined, archivedAtMs: binding.archivedAtMs }
@@ -280,23 +288,23 @@ export class ProjectRuntime {
       if (employee === undefined) throw protocolError('not-found', '请选择当前节点上的员工')
     }
     const sessionId = newId('session')
-    const preset = typeof params['agentPreset'] === 'string' ? params['agentPreset'] : employee?.agentPreset ?? this.#defaultPreset
+    const basePreset = typeof params['agentPreset'] === 'string' ? params['agentPreset'] : employee?.agentPreset ?? this.#defaultPreset
+    // 员工上下文与工具随会话装配，执行目录始终是项目目录；通用助手不增加员工身份。
+    const preset = employee === undefined ? basePreset : await prepareEmployeeContext({
+      dsh: this.#dsh, employee, workPath: project.path, projectId: project.projectId, basePreset, dshHome: this.#dshHome,
+    })
     const instructions = [
       '【DSE 项目背景】',
       `本次工作目录：${project.path}。项目自身的 AGENTS.md 和目录约定照常生效。`,
-      ...(employee === undefined ? [] : [
-        `执行者：${employee.name}`, `岗位职责：${employee.role}`,
-        ...(employee.intro === undefined ? [] : [`偏好与设定：${employee.intro}`]),
-        '产出保存在本次项目中；员工个人目录是背景资料与技能来源，不是本次产出目录。',
-        `员工背景资料：${path.join(employee.workspacePath, 'AGENTS.md')}（可按需读取，冲突时以本次项目约定为准）。`,
-        ...(employee.skills.length === 0 ? [] : [`员工技能参考目录：${path.join(employee.workspacePath, '.dsh', 'skills')}；可按需读取对应 SKILL.md，权限不足时如实说明。`, `技能：${employee.skills.join('、')}`]),
-      ]),
+      ...(employee === undefined ? [] : ['员工身份、技能与相关记忆由平台独立提供，员工长期记忆通过 employee_memory_read / employee_memory_write 保存到员工主目录。']),
       FILE_DELIVERY_TEXT,
       '【项目背景结束】',
     ].join('\n')
     // 先记不可变归属，再调用 dsh；超时也不会出现靠 cwd 猜执行者的会话。
     await this.store.reserve({ sessionId, projectId: project.projectId, nodeId: this.store.nodeId,
-      employeeId: employee?.id, employeeName: employee?.name, createdAtMs: Date.now(), instructions,
+      employeeId: employee?.id, employeeName: employee?.name,
+      employeeHome: employee?.workspacePath, employeeContextVersion: employee === undefined ? undefined : 1,
+      createdAtMs: Date.now(), instructions,
       setupError: '会话的初始配置尚未完成，请重新载入；若持续出现，请新建任务。' })
     const created = await this.#dsh.sessionCreate({ cwd: project.path, sessionId, ...(preset === undefined ? {} : { agentPreset: preset }) })
     if (created.sessionId !== sessionId) throw new Error('dsh 返回的会话编号与登记编号不一致')
@@ -311,7 +319,8 @@ export class ProjectRuntime {
       try { await this.#dsh.sessionRename(sessionId, title) }
       catch (error) { titleError = `会话已创建，但命名失败：${error instanceof Error ? error.message : String(error)}` }
     }
-    return { ...created, projectId: project.projectId, nodeId: this.store.nodeId, employeeId: employee?.id, modelError, titleError }
+    return { ...created, projectId: project.projectId, nodeId: this.store.nodeId, employeeId: employee?.id,
+      employeeHome: employee?.workspacePath, employeeContextVersion: employee === undefined ? undefined : 1, modelError, titleError }
   }
   async #download(params: Record<string, unknown>): Promise<unknown> {
     const project = this.store.project(required(params, 'projectId'))

@@ -3,7 +3,7 @@
  *
  * 它做四件事，每一件都对应一个明确的边界：
  *   1. **托管本机 dsh**（`DshProcess`），因为驱动 `/api` 的进程必须与 dsh 同机；
- *   2. **管员工 = 管工作区**（`EmployeeStore`），并把自己的目录**上报**给 Hub；
+ *   2. **管理员工主目录**（`EmployeeStore`）与独立项目目录，并上报给 Hub；
  *   3. **执行 Hub 下发的请求**，把它翻译成 dsh 的 `/api` 调用；
  *   4. **把 dsh 的输出推回 Hub**，由 Hub 按订阅关系分发给手机/控制台。
  *
@@ -32,6 +32,7 @@ import { markConnected, releasePaths, resolveUpdateRepo } from './release.ts'
 import { prepareRelease } from './update.ts'
 import { EmployeeStore, type DiscoveredEmployee } from './employees.ts'
 import { ensureFileDeliveryInstructions } from './file-delivery.ts'
+import { prepareEmployeeContext } from './employee-context.ts'
 import { forwarderPort, normalizeProxyConfig, startLocalForwarder, type LocalForwarder, type Upstream } from './llm-proxy.ts'
 import { isPermissionPreset, PERMISSION_PRESETS, readDefaultPreset, writeDefaultPreset } from './permission.ts'
 import { historyEntrySeq, pageEvents, sanitizeHistoryEvents, sanitizeLiveEvent } from './session-payload.ts'
@@ -242,6 +243,7 @@ export class NodeAgent {
       await projects.init()
       this.#projects = new ProjectRuntime({
         store: projects, dsh: this.#dsh, employees: this.#store, defaultPreset: this.options.defaultPreset,
+        dshHome: this.options.dshHome ?? this.options.dshEnv?.['DSH_HOME'],
         log: message => this.#log(message),
         watch: (sessionId, employeeId, watching) => {
           if (watching) this.#watchedSessions.add(sessionId)
@@ -400,8 +402,9 @@ export class NodeAgent {
     for (const employee of employees) {
       try {
         await ensureFileDeliveryInstructions(employee.workspacePath)
+        await store.refreshHomeInstructions(employee.workspacePath)
       } catch (error) {
-        this.#log(`warning: ${employee.name} 文件交付指令安装失败：${error instanceof Error ? error.message : String(error)}`)
+        this.#log(`warning: ${employee.name} 主目录指令更新失败：${error instanceof Error ? error.message : String(error)}`)
       }
       const workspaceId = await store.ensureRegistered(employee)
       if (workspaceId !== undefined) employee.workspaceId = workspaceId
@@ -699,11 +702,13 @@ export class NodeAgent {
         const employee = await this.#findEmployee(requireString(params, 'employeeId'))
         const workspaceId = employee.workspaceId ?? (await store.ensureRegistered(employee))
         // preset 取值顺序：调用参数显式指定 > 员工配置 > 节点默认。
-        // 三者都没有时不传，落 dsh 的部署默认（注意那是 minimal，没有 /compact 等能力）。
-        const agentPreset =
+        // 三者都没有时读取 dsh 当前默认，再在其副本中装配员工上下文。
+        const basePreset =
           typeof params['agentPreset'] === 'string'
             ? params['agentPreset']
             : (employee.agentPreset ?? this.options.defaultPreset)
+        const agentPreset = await prepareEmployeeContext({ dsh, employee, workPath: employee.workspacePath,
+          basePreset, dshHome: this.options.dshHome ?? this.options.dshEnv?.['DSH_HOME'] })
         // 可选命名。dsh 会**静默忽略** create payload 里的 title（实测 0.1.0-rc.6），
         // 所以这里不传它，改为创建成功后第二步用 session.rename 落名。
         // 给了 title 但非法（trim 后为空 / 超 200 字符）时在建会话**之前**就拒绝，
@@ -997,9 +1002,12 @@ export class NodeAgent {
     const employee = await this.#findEmployee(toEmployeeId)
     const workspaceId = employee.workspaceId ?? (await this.#requireStore().ensureRegistered(employee))
 
+    const agentPreset = await prepareEmployeeContext({ dsh, employee, workPath: employee.workspacePath,
+      basePreset: employee.agentPreset ?? this.options.defaultPreset,
+      dshHome: this.options.dshHome ?? this.options.dshEnv?.['DSH_HOME'] })
     const created = await dsh.sessionCreate({
       ...(workspaceId === undefined ? { cwd: employee.workspacePath } : { workspaceId }),
-      ...(employee.agentPreset === undefined ? {} : { agentPreset: employee.agentPreset }),
+      agentPreset,
     })
 
     if (options.onStarted !== undefined) await options.onStarted(created.sessionId)

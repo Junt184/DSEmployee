@@ -74,7 +74,7 @@ function renderProjectNavigation() {
   }
   var showArchived = $('projectShowArchived') !== null && $('projectShowArchived').checked
   var sessionSignature = JSON.stringify([projectKey(projectWork.current), projectWork.sessionId, showArchived, projectWork.sessions.map(function (session) {
-    return [sessionIdOf(session), sessionTitleOf(session), session.employeeName, session.running, session.archived, session.setupError]
+    return [sessionIdOf(session), sessionTitleOf(session), session.employeeName, session.running, session.archived, session.setupError, session.employeeContextVersion]
   })])
   if (sessions.getAttribute('data-project-signature') !== sessionSignature) {
     clear(sessions)
@@ -126,7 +126,8 @@ function renderProjectHeader() {
   if (title !== null) title.textContent = project === null ? '选择项目开始工作' : session === null ? '新任务 · ' + project.name : sessionTitleOf(session) || '未命名任务'
   if (environment !== null) environment.textContent = project === null ? '' :
     String(node ? node.name : shortId(project.nodeId)) + ' · ' + project.path +
-    (session === null ? '' : ' · ' + (session.employeeName || '通用助手'))
+    (session === null ? '' : ' · ' + (session.employeeName || '通用助手') +
+      (session.employeeId ? session.employeeContextVersion === 1 ? ' · 记忆保存在员工主目录' : ' · 旧会话：独立记忆需新建任务启用' : ''))
   if (status !== null) status.textContent = session && session.setupError ? session.setupError : state.phase !== 'ready' ? '连接恢复后可继续工作' : node && node.online === false ? '执行节点离线' : session && session.archived ? '已归档，可恢复后继续' : projectWork.running ? '执行中' : projectWork.sessionId ? '就绪' : '输入指令即可创建任务'
   syncProjectControls()
 }
@@ -435,7 +436,8 @@ function sendProjectPrompt() {
       projectWork.sessionId = sessionId; projectWork.newTask = false
       projectWork.listSerial += 1
       if (!projectSelectedSession()) projectWork.sessions.unshift({ sessionId: sessionId, title: title, employeeId: employee || undefined,
-        employeeName: employee ? (employeeById(employee) || {}).name : undefined, setupError: created.modelError, running: false })
+        employeeName: employee ? (employeeById(employee) || {}).name : undefined, employeeHome: created.employeeHome,
+        employeeContextVersion: created.employeeContextVersion, setupError: created.modelError, running: false })
       if ($('projectTaskName') !== null && $('projectTaskName').value.trim() === title) $('projectTaskName').value = ''
     }
     if (created.modelError) throw new Error(created.modelError + '。请修复模型配置后新建任务；原指令已保留。')

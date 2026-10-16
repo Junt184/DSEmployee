@@ -2751,647 +2751,249 @@ details.card > summary + * { margin-top: 8px; }
   .ctx-pop { left: auto; right: 0; }
 }
 
-/* ═══ 办公室（全景）：小办公室与每日小剧场 ═══
- *
- * 上一版是等距伪 3D 的立体工位 —— 桌子椅子墙都在，但看着像工程图、点着像报表。
- * 这一版左侧是温暖的小办公室：员工以独立工位呈现，自动换行，人数多时在场景内滚动；
- * 右侧小剧场提供每日选择与结局收藏。
- * 全部由 DOM + CSS 画出来，没有一张图片（头像用的是员工自己的头像）。
- *
- * 小办公室布景：
- *   1. .room 画墙面与地板；
- *   2. .room-scene 是可滚动的自适应工位网格；
- *   3. .walker 包含头像、真实状态灯、未读角标与气泡。
- *
- * 卡片上的轻微上下浮动只装饰头像；状态灯与角标不参与剧情。
+/* ═══ 办公室（全景）：可互动的微缩办公室 ═══
+ * 场景使用同一套 1000 × 720 坐标：背景矢量图、工位、角色按比例缩放。
+ * 每间六个可辨认的工位，人数增加时扩展工作室，避免无限缩小头像。
+ * 页面令牌限于 room-card，光线只改变布景；状态灯始终保留真实含义。
  */
-
-.room-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(290px, 0.85fr);
-  gap: 16px;
-  align-items: stretch;
-  margin-top: 12px;
-}
-.room-stage-column { min-width: 0; display: flex; flex-direction: column; }
-.room-stage-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 5px; }
-.room-stage-heading h3 { margin: 0; font-size: 17px; }
-.room-stage-heading span { color: var(--muted); font-size: 11px; }
-.room-hint { margin: 0 0 9px; color: var(--muted); font-size: 12px; line-height: 1.55; }
-.room-story-card {
-  min-width: 0;
-  min-height: 360px;
-  padding: 17px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background:
-    radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 48%),
-    var(--panel-2);
-}
-.room-story-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-.room-story-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  font-size: 11px;
-  font-weight: 700;
-}
-.room-story-header h3 { margin: 7px 0 0; font-size: 18px; line-height: 1.35; }
-.room-storybook-toggle { flex: 0 0 auto; min-height: 30px; padding: 4px 9px; font-size: 12px; }
-.room-storybook-toggle span {
-  display: inline-grid;
-  min-width: 18px;
-  height: 18px;
-  margin-left: 3px;
-  padding: 0 4px;
-  place-items: center;
-  border-radius: 999px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-  font-weight: 700;
-}
-.room-story-content { min-width: 0; margin-top: 16px; }
-.room-story-meta { display: flex; align-items: center; gap: 7px; }
-.room-story-meta span { font-size: 11px; }
-.room-story-date { color: var(--muted); }
-.room-story-fiction { color: var(--warn); font-weight: 700; }
-.room-story-title { margin: 8px 0 5px; font-size: 20px; line-height: 1.35; }
-.room-story-setup { margin: 0; color: var(--fg); font-size: 13px; line-height: 1.65; }
-.room-story-cast { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
-.room-story-cast-label { color: var(--muted); font-size: 11px; }
-.room-story-actor { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
-.room-story-actor .desk-avatar-box { width: 25px; height: 25px; margin: 0; }
-.room-story-actor .desk-avatar-box .desk-avatar { width: 100%; height: 100%; margin: 0; border-radius: 50%; }
-.room-story-prompt { margin: 13px 0 7px; font-size: 12px; font-weight: 700; }
-.room-story-choices { display: grid; gap: 7px; }
-.room-story-choice { width: 100%; min-height: 38px; padding: 8px 10px; text-align: left; font-size: 12px; transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease; }
-.room-story-choice:hover:not(:disabled) { transform: translateY(-1px); }
-.room-story-choice.is-selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
-.room-story-ending { margin-top: 10px; padding: 10px 11px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
-.room-story-ending-label { color: var(--accent); font-size: 11px; font-weight: 800; }
-.room-story-ending p { margin: 4px 0 0; font-size: 12px; line-height: 1.6; }
-.room-story-save { align-self: flex-start; min-height: 32px; margin-top: 9px; padding: 5px 10px; font-size: 12px; }
-.room-story-footnote { margin: auto 0 0; padding-top: 12px; color: var(--muted); font-size: 10px; line-height: 1.5; }
-.room-storybook { min-height: 0; max-height: 190px; margin-top: 10px; padding-top: 10px; overflow: auto; border-top: 1px solid var(--line); }
-.room-storybook h4 { margin: 0 0 7px; font-size: 12px; }
-.room-storybook-entry { position: relative; padding: 8px 0; border-top: 1px solid var(--line); }
-.room-storybook-entry strong { display: block; padding-right: 46px; font-size: 11px; }
-.room-storybook-date { position: absolute; top: 8px; right: 0; font-size: 10px; }
-.room-storybook-cast { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
-.room-storybook-entry p, .room-storybook-empty { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
-.room-storybook-empty { padding: 3px 0 8px; }
-
-.room {
-  /* —— 天色与地面：白天一套 —— */
-  --scene-sky-1: #eef5ff;
-  --scene-sky-2: #dcebfd;
-  --scene-ground: rgba(112, 136, 172, 0.16);
-  --scene-shadow: rgba(30, 40, 60, 0.2);
-  --scene-ring: rgba(255, 255, 255, 0.92);
-  --scene-tint: rgba(12, 20, 38, 0);
-  --scene-bubble: rgba(255, 255, 255, 0.94);
-  --scene-bubble-ink: #1c2637;
-  --scene-bubble-edge: rgba(30, 44, 66, 0.14);
-  /* 头像尺寸：脚本会按人数覆盖它（人越多越小），这里只是兜底 */
-  --walker-av: 48px;
-
-  position: relative;
-  overflow: hidden;
-  display: block;
-  height: min(74vh, 760px);
-  min-height: 360px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: linear-gradient(180deg, var(--scene-sky-1) 0%, var(--scene-sky-2) 68%, var(--scene-ground) 100%);
-  /* 地板上那点柔和的光：不用图片，一层径向渐变就够 */
-  isolation: isolate;
-}
-
-/* 小办公室：工位使用自适应网格，员工增加时向下扩展并在场景内滚动，不缩成一团。 */
-.room-small-office {
-  --office-wall: #edf2fa;
-  --office-floor: #ded8ce;
-  --office-floor-line: rgba(81, 94, 112, 0.11);
-  background: linear-gradient(180deg, var(--office-wall) 0 98px, var(--office-floor) 98px 100%);
-}
-.room-small-office::before {
-  content: "";
-  position: absolute;
-  inset: 98px 0 0;
-  pointer-events: none;
-  background:
-    repeating-linear-gradient(0deg, transparent 0 47px, var(--office-floor-line) 48px 49px),
-    repeating-linear-gradient(90deg, transparent 0 71px, var(--office-floor-line) 72px 73px);
-  z-index: 0;
-}
-.room-small-office .room-ground { display: none; }
-.room-office-backdrop {
-  position: absolute;
-  inset: 0 0 auto;
-  z-index: 1;
-  height: 98px;
-  box-sizing: border-box;
-  padding: 13px 16px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  pointer-events: none;
-}
-.room-office-window {
-  flex: 0 0 112px;
-  height: 62px;
-  box-sizing: border-box;
-  border: 5px solid rgba(255, 255, 255, 0.94);
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, transparent 47%, rgba(255, 255, 255, 0.88) 48% 52%, transparent 53%),
-    linear-gradient(0deg, transparent 44%, rgba(255, 255, 255, 0.88) 45% 52%, transparent 53%),
-    linear-gradient(135deg, #b4daf8, #eff9ff);
-  box-shadow: 0 3px 8px rgba(45, 63, 91, 0.16);
-}
-.room-office-board {
-  min-width: 88px;
-  margin: 3px auto 0 0;
-  padding: 7px 12px;
-  border: 1px solid rgba(158, 129, 57, 0.2);
-  border-radius: 4px;
-  background: #fff4c8;
-  color: #6b592b;
-  box-shadow: 0 3px 7px rgba(58, 54, 42, 0.12);
-  font-size: 11px;
-  text-align: center;
-  transform: rotate(-1deg);
-}
-.room-office-plant { margin-top: 23px; font-size: 25px; line-height: 1; }
-.room-small-office .room-scene {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  grid-auto-rows: minmax(136px, auto);
-  align-content: start;
-  gap: 10px;
-  overflow: auto;
-  padding: 108px 14px 16px;
-  box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 48%, transparent) transparent;
-}
-[data-theme="dark"] .room-small-office {
-  --office-wall: #202c3b;
-  --office-floor: #302f32;
-  --office-floor-line: rgba(211, 222, 241, 0.1);
-}
-[data-theme="dark"] .room-office-board { background: #5a5037; border-color: rgba(255, 238, 176, 0.18); color: #fff0bd; }
-
-/* 夜里 / 黄昏 / 清晨：一层薄罩色盖在天色上。
-   用"罩色"而不是换四个底色，是为了让它在浅色主题与深色主题下都能对上（另见 --scene-tint 的两套值）。 */
-.room::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: var(--scene-tint);
-  transition: background 1.2s ease;
-  z-index: 3;
-}
-.room[data-daypart="dawn"] { --scene-tint: rgba(255, 206, 150, 0.18); }
-.room[data-daypart="day"] { --scene-tint: rgba(12, 20, 38, 0); }
-.room[data-daypart="dusk"] { --scene-tint: rgba(255, 150, 96, 0.2); }
-.room[data-daypart="night"] { --scene-tint: rgba(8, 14, 30, 0.5); }
-
-[data-theme="dark"] .room {
-  --scene-sky-1: #1a2334;
-  --scene-sky-2: #141b29;
-  --scene-ground: rgba(150, 176, 214, 0.1);
-  --scene-shadow: rgba(0, 0, 0, 0.42);
-  --scene-ring: rgba(226, 236, 252, 0.5);
-  --scene-bubble: rgba(28, 38, 55, 0.96);
-  --scene-bubble-ink: #e9eefb;
-  --scene-bubble-edge: rgba(150, 176, 214, 0.22);
-}
-[data-theme="dark"] .room[data-daypart="night"] { --scene-tint: rgba(4, 8, 20, 0.42); }
-
-/* 地面：一片椭圆。头像的影子和它对齐，视觉上"人踩在地上" */
-.room-ground {
-  position: absolute;
-  left: 50%;
-  bottom: -6%;
-  width: 118%;
-  height: 46%;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: radial-gradient(closest-side, var(--scene-ground), transparent 72%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* 场地：脚本把头像撒在这一层里，坐标就是这一层的像素 */
-.room-scene {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
-/* —— 一个人 —— */
-.walker {
-  position: absolute;
-  left: var(--w-x);
-  top: var(--w-y);
-  width: 0;
-  height: 0;
-  cursor: pointer;
-  /* 走路：只在 translate 上动。整圈是一个闭环，所以不会"跳"回起点 */
-  animation: walk-loop var(--walk-dur, 22s) ease-in-out infinite;
-  animation-delay: var(--walk-delay, 0s);
-  /* 50 个人同时动画，提示浏览器这一层会被反复变换 */
-  will-change: translate;
-}
-.walker:focus { outline: none; }
-.walker:focus-visible .walker-face,
-.walker.active .walker-face {
-  box-shadow: 0 0 0 3px var(--accent), 0 6px 14px var(--scene-shadow);
-}
-
-/* 影子：跟着起伏一起一缩，看着像脚步 */
-.walker-shadow {
-  position: absolute;
-  left: 50%;
-  top: calc(var(--walker-av) * 0.42);
-  width: calc(var(--walker-av) * 0.74);
-  height: calc(var(--walker-av) * 0.24);
-  margin-left: calc(var(--walker-av) * -0.37);
-  border-radius: 50%;
-  background: var(--scene-shadow);
-  filter: blur(1px);
-  animation: walk-shadow 1.7s ease-in-out infinite;
-}
-
-/* 身体：上下轻轻起伏 —— "走"的感觉全在这里。
-   刻意用独立的 translate 属性而不是 transform：外层走路也用 translate，
-   两层各动各的才不会互相覆盖。 */
-.walker-body {
-  position: absolute;
-  left: calc(var(--walker-av) / -2);
-  top: calc(var(--walker-av) / -2);
-  display: block;
-  animation: walk-bob 1.7s ease-in-out infinite;
-}
-
-.walker-face {
-  display: block;
-  width: var(--walker-av);
-  height: var(--walker-av);
-  border-radius: 50%;
-  background: var(--panel);
-  box-shadow: 0 4px 10px var(--scene-shadow), 0 0 0 2px var(--scene-ring);
-  transition: box-shadow 0.18s ease;
-}
-.walker-face .desk-avatar-box {
-  margin: 0;
-  width: var(--walker-av);
-  height: var(--walker-av);
-}
-.walker-face .desk-avatar-box .desk-avatar {
-  margin: 0;
+.room-card {
+  --room-ink: #314d42;
+  --room-soft-ink: #7a8678;
+  --room-green: #416d58;
+  --room-line: #e1e5d9;
+  --room-paper: #fffef9;
+  --room-base: #f5f6ee;
+  --room-soft: #eef1e5;
+  max-width: 1400px;
   width: 100%;
-  height: 100%;
-  border-radius: 50%;
+  margin: 0 auto;
+  padding: 26px 28px 17px;
+  border: 1px solid var(--room-line);
+  border-radius: 24px;
+  background: var(--room-base);
+  color: var(--room-ink);
 }
-.walker:hover .walker-face { box-shadow: 0 0 0 3px var(--accent), 0 8px 16px var(--scene-shadow); }
-
-/* 状态小灯：头像上永久可见的那一颗 —— 忙闲、离线、卡住一眼看全。
-   姓名牌会在悬停时才出现（人多了常显会糊成一团），所以"谁怎么样"必须靠这颗灯。 */
-.walker-dot {
-  position: absolute;
-  right: -1px;
-  top: -1px;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  border: 2px solid var(--panel);
-  background: var(--muted);
-  box-sizing: border-box;
-}
-.walker[data-lamp="ok"] .walker-dot { background: var(--ok); }
-.walker[data-lamp="busy"] .walker-dot { background: var(--warn); }
-.walker[data-lamp="bad"] .walker-dot { background: var(--bad); }
-.walker[data-lamp="off"] .walker-dot { background: var(--muted); }
-.walker[data-lamp="busy"] .walker-dot { animation: dot-pulse 1.6s ease-in-out infinite; }
-
-/* 未读角标：全屋唯一"要你行动"的信号 */
-.walker-badge:empty { display: none; }
-.walker-badge {
-  position: absolute;
-  left: 76%;
-  top: -8px;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: 9px;
-  background: var(--bad);
-  color: #fff;
-  font-size: 11px;
-  line-height: 17px;
-  font-weight: 700;
-  text-align: center;
-  box-sizing: border-box;
-  animation: badge-pop 0.32s ease-out;
-}
-.walker[data-pose="call"] .walker-badge { animation: badge-pop 0.32s ease-out, badge-pulse 1.8s ease-in-out 0.32s infinite; }
-
-/* 小道具：Zzz（离线）/ !（卡住）/ ×（工作区没了）。内容由脚本写，这里只给样子 */
-.walker-prop:empty { display: none; }
-.walker-prop {
-  position: absolute;
-  right: -6px;
-  top: calc(var(--walker-av) * -0.42);
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted);
-  text-shadow: 0 1px 2px var(--scene-bubble);
-  animation: prop-float 2.6s ease-in-out infinite;
-}
-.walker[data-pose="alert"] .walker-prop { color: var(--bad); animation: prop-shake 0.7s ease-in-out infinite; }
-.walker[data-pose="gone"] .walker-prop { color: var(--warn); }
-
-/* 姓名：平时隐身（人多了会糊），悬停 / 键盘聚焦 / 正在说话时才浮出来。
-   pointer-events: none 是必须的 —— 否则那块隐形的字会挡住后面的人，点不中。
-   （这条是上一版踩过的坑，见 memory/iso-room-hit-region.md） */
-.walker-name {
-  position: absolute;
-  left: 50%;
-  top: calc(var(--walker-av) * 0.62);
-  transform: translateX(-50%);
-  max-width: 11em;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--scene-bubble);
-  color: var(--scene-bubble-ink);
-  border: 1px solid var(--scene-bubble-edge);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.16s ease;
-  z-index: 2;
-}
-.walker:hover .walker-name,
-.walker:focus-visible .walker-name,
-.walker[data-talk="1"] .walker-name { opacity: 1; }
-
-/* —— 说话气泡：这页的主角。
-   点一下头像 → 气泡冒出来，里面是一句他此刻"会说"的话（台词表见 ROOM_LINES）。 */
-.walker-bubble {
-  position: absolute;
-  left: 50%;
-  bottom: calc(var(--walker-av) * 0.66);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 84px;
-  max-width: 15em;
-  padding: 7px 11px 8px;
-  border-radius: 14px;
-  background: var(--scene-bubble);
-  color: var(--scene-bubble-ink);
-  border: 1px solid var(--scene-bubble-edge);
-  box-shadow: 0 8px 20px var(--scene-shadow);
-  transform: translate(-50%, 6px) scale(0.86);
-  transform-origin: 50% 100%;
-  opacity: 0;
-  /* 藏起来的时候决不能挡住别人：pointer-events: none */
-  pointer-events: none;
-  transition: opacity 0.16s ease, transform 0.2s cubic-bezier(0.22, 1.2, 0.36, 1);
-  z-index: 4;
-}
-/* 气泡底下那个小尖角（一个旋转 45° 的方块） */
-.walker-bubble::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -5px;
-  width: 10px;
-  height: 10px;
-  margin-left: -5px;
-  border-radius: 2px;
-  background: var(--scene-bubble);
-  border-right: 1px solid var(--scene-bubble-edge);
-  border-bottom: 1px solid var(--scene-bubble-edge);
-  transform: rotate(45deg);
-}
-.walker[data-talk="1"] .walker-bubble {
-  opacity: 1;
-  transform: translate(-50%, 0) scale(1);
-  pointer-events: auto;
-}
-.walker[data-talk="1"] { z-index: 9; }
-
-.walker-bubble-head {
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.walker-line {
-  font-size: 13.5px;
-  line-height: 1.5;
-  white-space: nowrap;
-}
-
-/* 气泡里的"聊两句"：点它才真的进对话。
-   为什么不让点头像直接跳转：这一版的点一下是"说句话"（乐趣），
-   跳转是"干活"，两者混在一起会让人不敢点。 */
-.walker-talk {
-  align-self: flex-start;
-  margin-top: 3px;
-  padding: 2px 9px;
-  border: 1px solid var(--scene-bubble-edge);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--scene-bubble-ink);
-  font-size: 12px;
-  line-height: 1.6;
-  cursor: pointer;
-}
-.walker-talk:hover { border-color: var(--accent); color: var(--accent); }
-
-/* —— 状态决定的小动作 ——
-   只有"有话说"的状态才动：满屋人一起抽搐比不动更难看。 */
-.walker[data-pose="sleep"] { opacity: 0.72; animation-duration: calc(var(--walk-dur, 22s) * 1.6); }
-.walker[data-pose="sleep"] .walker-body { animation-duration: 3.4s; }
-.walker[data-pose="sleep"] .walker-face { filter: grayscale(0.55); }
-.walker[data-pose="gone"] { opacity: 0.6; }
-.walker[data-pose="gone"] .walker-face { filter: grayscale(0.8); }
-.walker[data-pose="busy"] .walker-body { animation-duration: 1.1s; }
-.walker[data-pose="alert"] .walker-face { box-shadow: 0 0 0 3px var(--bad), 0 6px 14px var(--scene-shadow); }
-.walker[data-pose="call"] .walker-face { box-shadow: 0 0 0 3px var(--warn), 0 6px 14px var(--scene-shadow); }
-
-/* 小办公室里的员工是工位卡片：自动换行、姓名常显，滚动区容纳任意人数。 */
-.room-small-office .walker {
+.room-card button { color: var(--room-ink); background: var(--room-paper); border-color: var(--room-line); border-radius: 9px; transition: background .18s, box-shadow .18s, translate .18s; }
+.room-card button:hover:not(:disabled) { border-color: #8da38d; background: var(--room-soft); }
+.room-card button:focus-visible, .room-card [role="button"]:focus-visible { outline: 3px solid #80a58a; outline-offset: 4px; }
+.room-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.room-eyebrow { display: flex; align-items: center; gap: 7px; color: var(--room-green); font-size: 9px; font-weight: 700; letter-spacing: 2.3px; }
+.room-eyebrow > span { width: 7px; height: 7px; border: 2px solid #6e9376; border-radius: 2px; rotate: -15deg; }
+.room-page-heading h2 { justify-content: start; align-items: baseline; gap: 17px; margin-top: 7px; font-size: 29px; font-weight: 750; letter-spacing: -1px; }
+.room-page-heading h2 > span { font-size: 12px; font-weight: 400; color: var(--room-soft-ink); letter-spacing: .5px; }
+.room-page-heading p { margin: 6px 0 0; color: var(--room-soft-ink); font-size: 11px; }
+.room-calendar { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.room-calendar-icon { display: grid; place-items: center; width: 41px; height: 41px; border-radius: 50%; background: #f4ead0; color: #bc9144; font-size: 24px; }
+.room-calendar strong, .room-calendar div > span { display: block; }
+.room-calendar strong { font-size: 11px; font-weight: 600; }
+.room-calendar div > span { margin-top: 3px; font-size: 10px; color: var(--room-soft-ink); }
+.room-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 21px; align-items: start; }
+.room-stage-column { min-width: 0; }
+.room-scene-card { overflow: hidden; border: 1px solid var(--room-line); border-radius: 19px; background: var(--room-paper); box-shadow: 0 5px 18px #44553b05; }
+.room-toolbar { min-height: 59px; padding: 13px 19px; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-bottom: 1px solid var(--room-line); }
+.room-studio-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.room-studio-title h3 { margin: 0; white-space: nowrap; font-size: 12px; font-weight: 650; }
+.room-studio-title > span:last-child { padding-left: 8px; border-left: 1px solid var(--room-line); font-size: 9px; color: var(--room-soft-ink); white-space: nowrap; }
+.room-studio-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #6c9779; box-shadow: 0 0 0 3px #6c977916; }
+.room-light-switch { display: flex; flex: 0 0 auto; gap: 2px; padding: 3px; border: 1px solid var(--room-line); border-radius: 8px; background: var(--room-base); }
+.room-light-switch button { min-height: 26px; padding: 3px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--room-soft-ink); font-size: 10px; }
+.room-light-switch button[aria-pressed="true"] { background: var(--room-paper); color: var(--room-green); box-shadow: 0 1px 5px #344d3612; font-weight: 650; }
+.room {
+  --office-scale: .7;
+  --scene-bubble: #fffef8;
+  --scene-bubble-ink: #345043;
+  --scene-bubble-edge: #d6dfcc;
   position: relative;
-  left: auto;
-  top: auto;
-  width: auto;
-  height: auto;
-  min-height: 136px;
-  padding: 8px 6px 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  box-shadow: 0 4px 11px rgba(43, 55, 75, 0.09);
-  animation: none;
-  animation-delay: 0s;
-  will-change: auto;
+  width: 100%;
+  aspect-ratio: 1000 / 720;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 54% 71%, #e4e9d7 0%, #f4f6e9 60%, #f8f9f0 100%);
   isolation: isolate;
-  z-index: 1 !important;
+  transition: background .7s;
 }
-.room-small-office .walker::before {
-  content: "";
-  position: absolute;
-  left: 12%;
-  right: 12%;
-  bottom: 6px;
-  height: 20px;
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
-  border-radius: 6px 6px 9px 9px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, white), color-mix(in srgb, var(--panel-2) 82%, var(--accent)));
-  box-shadow: 0 3px 5px rgba(45, 52, 68, 0.1);
-  z-index: -1;
-}
-.room-small-office .walker-shadow { display: none; }
-.room-small-office .walker-body {
-  position: relative;
-  left: auto;
-  top: auto;
-  display: block;
-  animation: walk-bob 3s ease-in-out infinite;
-  z-index: 1;
-}
-.room-small-office .walker-name {
-  position: relative;
-  left: auto;
-  top: auto;
-  display: block;
-  max-width: 100%;
-  margin-top: 5px;
-  padding: 0 3px;
-  transform: none;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  font-size: 11px;
-  line-height: 1.5;
-  text-align: center;
-  opacity: 1;
-  z-index: 1;
-}
-.room-small-office .walker-bubble {
-  left: 50%;
-  top: 5px;
-  bottom: auto;
-  transform: translate(-50%, -100%) scale(0.88);
-}
-.room-small-office .walker[data-talk="1"] { z-index: 20 !important; }
-.room-small-office .walker[data-talk="1"] .walker-bubble { transform: translate(-50%, -104%) scale(1); }
-.room-small-office .walker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-/* 空办公室 */
-.room-scene > .empty {
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  transform: translate(-50%, -50%);
-  max-width: 32em;
-  text-align: center;
-  color: var(--muted);
-}
-
-@keyframes walk-loop {
-  0% { translate: 0 0; }
-  25% { translate: var(--w-1x, 0) var(--w-1y, 0); }
-  50% { translate: var(--w-2x, 0) var(--w-2y, 0); }
-  75% { translate: var(--w-3x, 0) var(--w-3y, 0); }
-  100% { translate: 0 0; }
-}
-@keyframes walk-bob {
-  0%, 100% { translate: 0 0; }
-  50% { translate: 0 -5px; }
-}
-@keyframes walk-shadow {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(0.86); opacity: 0.72; }
-}
-@keyframes dot-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.22); }
-}
-@keyframes badge-pop {
-  0% { transform: scale(0.5); }
-  100% { transform: scale(1); }
-}
-@keyframes badge-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.18); }
-}
-@keyframes prop-float {
-  0%, 100% { transform: translateY(0); opacity: 0.8; }
-  50% { transform: translateY(-4px); opacity: 1; }
-}
-@keyframes prop-shake {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(2px); }
-}
-
-/* 窄屏：气泡与姓名牌跟着小一号（场地本身高度已经是 vh，不用担心放不下） */
-@media (max-width: 980px) {
-  .room-layout { grid-template-columns: minmax(0, 1fr); }
-  .room-story-card { min-height: 0; }
-  .room-story-footnote { margin-top: 18px; }
-}
-@media (max-width: 720px) {
-  .room { height: min(66vh, 560px); border-radius: 12px; }
-  .walker-bubble { max-width: 11em; padding: 6px 9px 7px; }
-  .walker-line { font-size: 12.5px; }
-  .walker-name { font-size: 11px; }
-}
-@media (max-width: 400px) {
-  .room-office-board { display: none; }
-  .room-small-office .room-scene { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); padding-inline: 10px; }
-}
-
-/* 动效敏感的人：全场静止。
-   注意这里连"走路"一起停掉 —— 一堆东西在屏幕上飘，正是这类设置要避免的东西。
-   （停下之后头像仍然站在原地，位置由 left/top 决定，不依赖动画。） */
-@media (prefers-reduced-motion: reduce) {
-  .walker,
-  .walker-body,
-  .walker-shadow,
-  .walker-dot,
-  .walker-badge,
-  .walker-prop {
-    animation: none !important;
-    translate: none !important;
-  }
-  .walker-bubble { transition: none; }
-  .room::after { transition: none; }
-}
+.room-office-art { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; transition: filter .7s; }
+.room-scene-caption { position: absolute; top: 7%; left: 5%; color: #81917a; font: 23px/1.08 Georgia, "Songti SC", serif; letter-spacing: -.5px; rotate: -4deg; pointer-events: none; }
+.room-scene-caption i { font-weight: 400; color: #a0ac94; }
+.room-corner-label { position: absolute; bottom: 3.3%; left: 5%; display: flex; align-items: center; gap: 6px; color: #8e9b81; font-size: 7px; letter-spacing: 1.5px; pointer-events: none; }
+.room-corner-label > span { width: 4px; height: 4px; border-radius: 50%; background: #94a48b; }
+.room-scene { position: absolute; inset: 0; z-index: 2; }
+.room-scene-bottom { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 49px; padding: 10px 19px; border-top: 1px solid var(--room-line); }
+.room-scene-bottom p { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--room-soft-ink); font-size: 10px; }
+.room-scene-bottom p > span { font-size: 17px; color: #7b977c; }
+.room-scene-tips { font-size: 9px; color: var(--room-soft-ink); }
+.room-pagination { display: flex; align-items: center; gap: 10px; }
+.room-pagination button { padding: 0; min-height: 26px; width: 28px; border-radius: 6px; font-size: 13px; }
+.room-pagination > span { font: 10px/1.5 ui-monospace, monospace; letter-spacing: 1px; white-space: nowrap; }
+/* 每个员工是一套小桌椅，角色坐在桌后。名字是小铭牌，不再用头像卡片当房间。 */
+.walker { position: absolute; width: 170px; height: 145px; transform: translate(-50%, -50%) scale(var(--office-scale)); transform-origin: center; cursor: pointer; outline: none; --desk-color: #769d8b; }
+.room-desk-object { position: absolute; left: 0; top: 0; width: 170px; height: 130px; z-index: 3; pointer-events: none; filter: drop-shadow(0 9px 4px #53644816); transition: filter .2s; }
+.room-desk-object > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.walker-shadow { position: absolute; width: 117px; height: 48px; border-radius: 50%; background: #596c4e15; left: 28px; top: 83px; filter: blur(7px); pointer-events: none; }
+.walker-chair { position: absolute; left: 35px; top: 25px; width: 55px; height: 48px; border: 2px solid #617967; border-radius: 17px 17px 10px 10px; background: #79927c; box-shadow: inset -6px -4px 0 #48604e24; z-index: 1; pointer-events: none; }
+.walker-chair::after { content: ""; position: absolute; top: 44px; left: 25px; height: 33px; width: 5px; border-radius: 2px; background: #768172; box-shadow: -13px 26px 0 -1px #768172, 11px 22px 0 -1px #768172; }
+.walker-body { position: absolute; left: 40px; top: 1px; width: 46px; height: 69px; z-index: 2; animation: office-breathe 4s ease-in-out infinite; animation-delay: calc(var(--seat-index, 0) * -.57s); pointer-events: none; }
+.walker-torso { position: absolute; left: 0; top: 33px; width: 48px; height: 39px; border-radius: 17px 17px 7px 7px; background: var(--desk-color); box-shadow: inset -7px -3px 0 #0000000e; }
+.walker-torso::before, .walker-torso::after { content: ""; position: absolute; top: 11px; width: 12px; height: 29px; border-radius: 8px; background: var(--desk-color); }
+.walker-torso::before { left: -6px; rotate: -35deg; }
+.walker-torso::after { right: -5px; rotate: 35deg; }
+.walker-face { position: absolute; left: 1px; top: 0; display: block; width: 44px; height: 44px; border-radius: 50%; background: #fffbef; box-shadow: 0 2px 0 #56725d25, 0 0 0 2px #fff9e9; overflow: hidden; }
+.walker-face .desk-avatar-box, .walker-face .desk-avatar-box .desk-avatar { display: block; width: 44px; height: 44px; margin: 0; border-radius: 50%; }
+.walker-face img.desk-avatar { object-fit: cover; image-rendering: auto; }
+.walker:hover .room-desk-object, .walker:focus-visible .room-desk-object, .walker.active .room-desk-object { filter: drop-shadow(0 0 4px #608e53b0) drop-shadow(0 6px 4px #53644818); }
+.walker:hover .walker-face { box-shadow: 0 0 0 3px #94b48b; }
+.walker-name { position: absolute; top: 116px; left: 50%; transform: translateX(-50%) scale(var(--office-label-scale, 1)); transform-origin: top center; max-width: 160px; padding: 2px 10px; border: 1px solid #d3dbc4; border-radius: 5px; background: #fffdf0ed; color: #3a5344; font-size: 14px; font-weight: 650; line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 #7387610b; pointer-events: none; }
+.walker.active .walker-name { background: #486e52; color: #fffef3; border-color: #486e52; }
+.walker-role { display: none; }
+.walker-dot { position: absolute; top: 119px; left: 44px; width: 7px; height: 7px; border: 1px solid #fffef4; border-radius: 50%; background: #8c9788; z-index: 7; }
+.walker-body > .walker-dot { top: -2px; left: 38px; width: 10px; height: 10px; border-width: 2px; }
+.walker[data-lamp="ok"] .walker-dot { background: #509870; }
+.walker[data-lamp="busy"] .walker-dot { background: #d2a052; animation: dot-pulse 2s ease-in-out infinite; }
+.walker[data-lamp="bad"] .walker-dot { background: #c96555; }
+.walker[data-lamp="off"] .walker-dot { background: #96a08e; }
+.walker-badge:empty, .walker-prop:empty { display: none; }
+.walker-badge { position: absolute; top: -6px; left: -13px; min-width: 19px; height: 19px; padding: 0 4px; border-radius: 10px; background: #c16b56; color: #fff; font-size: 12px; font-weight: 700; line-height: 19px; text-align: center; z-index: 6; }
+.walker-prop { position: absolute; top: -17px; left: -7px; color: #7f8b73; font: italic 12px Georgia, serif; animation: prop-float 3s ease-in-out infinite; }
+.walker[data-pose="alert"] .walker-prop { color: #b65c4c; font-size: 19px; font-weight: 700; }
+.walker[data-pose="sleep"] .walker-body { animation-duration: 6s; }
+.walker[data-pose="type"] .walker-torso::after { animation: office-type .5s ease-in-out infinite alternate; }
+.walker[data-pose="call"] .walker-torso::before { rotate: 130deg; transform-origin: top center; animation: office-wave 1.5s ease-in-out infinite; }
+.walker-bubble { position: absolute; left: 50%; bottom: 143px; z-index: 10; display: flex; flex-direction: column; gap: 3px; width: max-content; max-width: 240px; padding: 12px 16px; border: 1px solid var(--scene-bubble-edge); border-radius: 13px 13px 13px 2px; background: var(--scene-bubble); color: var(--scene-bubble-ink); box-shadow: 0 6px 24px #44563519; opacity: 0; visibility: hidden; transform: translate(-50%, 10px) scale(var(--office-bubble-scale, 1)); transform-origin: bottom; pointer-events: none; transition: transform .2s; }
+.walker-bubble::after { content: ""; position: absolute; bottom: -6px; left: 46%; width: 10px; height: 10px; rotate: 45deg; border-right: 1px solid var(--scene-bubble-edge); border-bottom: 1px solid var(--scene-bubble-edge); background: var(--scene-bubble); }
+.walker[data-talk="1"] { z-index: 900 !important; }
+.walker[data-talk="1"] .walker-bubble { opacity: 1; visibility: visible; transform: translate(-50%, 0) scale(var(--office-bubble-scale, 1)); pointer-events: auto; }
+.walker-bubble-head { color: #8b967e; font-size: 12px; }
+.walker-line { font-size: 16px; line-height: 1.5; white-space: normal; }
+.walker-fiction { color: #8b967e; font-size: 10px; }
+.walker-talk { align-self: start; min-height: 24px; margin-top: 4px; padding: 2px 8px; font-size: 12px; }
+.room-scene > .empty { position: absolute; left: 50%; top: 64%; transform: translate(-50%, -50%); width: 65%; padding: 18px; border-radius: 12px; background: #fffdf3e6; color: #73856b; text-align: center; font-size: 12px; }
+/* 小彩蛋只操作布景和本地台词。光线与暂停也只作用于当前办公室。 */
+.room-playbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 12px 18px; border-bottom: 1px solid var(--room-line); background: var(--room-paper); }
+.room-playbar > div:first-child { flex: 0 0 auto; }
+.room-playbar strong { display: block; font-size: 12px; font-weight: 650; }
+.room-playbar > div:first-child > span { display: block; margin-top: 3px; color: var(--room-soft-ink); font-size: 9px; }
+.room-play-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: end; }
+.room-play-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 35px; padding: 5px 9px; font-size: 10px; white-space: nowrap; }
+.room-play-actions button > svg { color: #819270; width: 15px; height: 15px; flex: 0 0 auto; }
+.room-play-actions .room-motion-toggle { font-size: 9px; color: var(--room-soft-ink); border-color: transparent; background: transparent; padding-inline: 5px; }
+.room-play-actions button:hover:not(:disabled) { translate: 0 -2px; }
+.room-moment { display: flex; align-items: start; gap: 12px; margin-top: 16px; padding: 13px 15px; border: 1px dashed #d5ddca; border-radius: 11px; background: #edf1e4; }
+.room-moment-icon { display: grid; place-items: center; flex: 0 0 auto; width: 27px; height: 27px; margin-top: 2px; border-radius: 8px; background: #e0e9d3; color: #8da269; font-size: 18px; }
+.room-moment strong { font-size: 10px; font-weight: 650; }
+.room-moment p { margin: 3px 0; font-size: 11px; line-height: 1.7; }
+.room-moment div > span { display: block; color: #87927c; font-size: 9px; }
+.room-colleague { display: flex; align-items: center; gap: 12px; min-height: 97px; margin-top: 15px; padding: 15px; border: 1px solid var(--room-line); border-radius: 12px; background: var(--room-paper); }
+.room-colleague-avatar { width: 48px; height: 48px; flex: 0 0 auto; border-radius: 13px; background: var(--room-soft); padding: 4px; }
+.room-colleague-avatar .desk-avatar-box, .room-colleague-avatar .desk-avatar-box .desk-avatar { width: 40px !important; height: 40px !important; margin: 0; border-radius: 50%; }
+.room-colleague-copy { flex: 1 1 auto; min-width: 0; }
+.room-colleague-heading { display: flex; align-items: center; gap: 9px; }
+.room-colleague-heading strong { font-size: 13px; }
+.room-colleague-heading > span { color: var(--room-soft-ink); font-size: 9px; }
+.room-colleague-copy > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--room-soft-ink); font-size: 10px; }
+.room-colleague-copy p { margin: 4px 0 0; font-size: 11px; }
+.room-colleague > button { flex: 0 0 auto; min-height: 32px; padding: 5px 12px; background: var(--room-green); border-color: var(--room-green); color: #fffef4; font-size: 10px; }
+.room-colleague > button:hover:not(:disabled) { background: #345643; border-color: #345643; }
+.room-colleague > button > span { padding-left: 7px; }
+.room-paper-plane { position: absolute; left: 10%; top: 57%; width: 6%; height: auto; z-index: 901; opacity: 0; pointer-events: none; filter: drop-shadow(2px 10px 3px #53654833); }
+.room[data-event="plane"] .room-paper-plane { animation: office-plane 3.8s cubic-bezier(.2,.4,.3,1) both; }
+.office-coffee-steam { opacity: .6; animation: office-steam 3.5s ease-out infinite; }
+.room[data-event="coffee"] .office-coffee-steam { opacity: 1; animation-duration: 1.2s; }
+.room[data-event="plant"] .office-plant-leaves { transform-box: fill-box; transform-origin: bottom; animation: office-plant .45s ease-in-out 5; }
+.room-event-spark { position: absolute; z-index: 3; opacity: 0; color: #d1aa62; pointer-events: none; font-size: 30px; }
+.room-event-spark-one { top: 30%; left: 48%; }
+.room-event-spark-two { top: 40%; left: 44%; font-size: 20px; }
+.room[data-event="plant"] .room-event-spark, .room[data-event="coffee"] .room-event-spark { animation: office-spark 2.5s ease-out both; }
+.room-event-spark-two { animation-delay: .3s !important; }
+.room[data-daypart="dusk"] { background: radial-gradient(ellipse at 30% 20%, #fce4bc, #f2e9d8 65%, #e6e8d9); }
+.room[data-daypart="dusk"] .room-office-art { filter: sepia(.12) saturate(1.12); }
+.room[data-daypart="dusk"] .office-sky-top { stop-color: #edb79c; }
+.room[data-daypart="dusk"] .office-sky-bottom { stop-color: #f8dca6; }
+.room[data-daypart="dusk"] .office-sunbeam { opacity: .95; }
+.room[data-daypart="night"] { background: radial-gradient(ellipse at 60% 60%, #41524b, #293d38 75%); }
+.room[data-daypart="night"] .room-office-art { filter: brightness(.76) saturate(.8); }
+.room[data-daypart="night"] .office-sky-top { stop-color: #46616a; }
+.room[data-daypart="night"] .office-sky-bottom { stop-color: #738c8e; }
+.room[data-daypart="night"] .office-window-sun { fill: #fff9d8; }
+.room[data-daypart="night"] .office-sunbeam { opacity: .08; }
+.room[data-daypart="night"] .office-lamp-glow { filter: drop-shadow(0 5px 14px #fff1a9); }
+.room[data-daypart="night"] .room-scene-caption, .room[data-daypart="night"] .room-corner-label { color: #b9c5a4; }
+.room[data-daypart="night"] .room-scene-caption i { color: #879a7c; }
+.room[data-paused="true"] *, .room[data-paused="true"] *::before, .room[data-paused="true"] *::after { animation-play-state: paused !important; }
+/* 今日小剧场：一张可参与的纸质海报，选择与收藏沿用真实本地进度。 */
+.room-story-card { min-width: 0; overflow: hidden; border: 1px solid var(--room-line); border-radius: 19px; background: var(--room-paper); }
+.room-story-header { display: flex; align-items: start; justify-content: space-between; gap: 8px; padding: 20px 18px 16px; }
+.room-story-eyebrow { color: #9aa386; font-size: 8px; letter-spacing: 1.9px; font-weight: 650; }
+.room-story-header h3 { margin: 6px 0 0; font-size: 16px; font-weight: 650; }
+.room-story-header h3 > span { display: inline-flex; vertical-align: middle; margin-left: 4px; padding: 2px 5px; border-radius: 4px; background: #f2e6cc; color: #a88d55; font-size: 8px; font-weight: 400; }
+.room-storybook-toggle { flex: 0 0 auto; min-height: 27px; padding: 3px 6px; margin-top: 13px; font-size: 9px; }
+.room-storybook-toggle > span { display: inline-grid; place-items: center; min-width: 13px; height: 13px; padding: 0 3px; margin-left: 2px; border-radius: 50%; background: var(--room-soft); font-size: 8px; }
+.room-story-poster { position: relative; height: 176px; margin: 0 13px; border-radius: 12px; overflow: hidden; background: linear-gradient(145deg, #e9eddc, #f4eedb); }
+.room-story-poster > svg { display: block; width: 100%; height: 163px; padding-top: 7px; }
+.room-poster-prop-snack, .room-poster-prop-elevator { display: none; }
+.room-story-poster[data-story="snack"] .room-poster-prop-plant, .room-story-poster[data-story="elevator"] .room-poster-prop-plant { display: none; }
+.room-story-poster[data-story="snack"] .room-poster-prop-snack, .room-story-poster[data-story="elevator"] .room-poster-prop-elevator { display: inline; }
+.room-poster-episode { position: absolute; top: 12px; left: 13px; color: #96a07e; font-size: 7px; letter-spacing: 1.5px; }
+.room-poster-caption { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; color: #9b9a7f; font: 11px Georgia, "Songti SC", serif; letter-spacing: 1px; }
+.room-story-content { padding: 18px; }
+.room-story-meta { display: flex; align-items: center; justify-content: space-between; font-size: 9px; color: var(--room-soft-ink); }
+.room-story-fiction { padding: 2px 6px; background: var(--room-soft); border-radius: 4px; color: #839170; font-size: 8px; }
+.room-story-title { margin: 10px 0 9px; color: var(--room-ink); font-size: 20px; line-height: 1.55; font-weight: 650; letter-spacing: -.6px; }
+.room-story-setup { margin: 0; font-size: 11px; line-height: 1.95; color: #7c8271; }
+.room-story-cast { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 15px; padding-bottom: 15px; border-bottom: 1px dashed var(--room-line); }
+.room-story-cast-label { color: var(--room-soft-ink); font-size: 9px; }
+.room-story-actor { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; }
+.room-story-actor .desk-avatar-box, .room-story-actor .desk-avatar-box .desk-avatar { width: 23px !important; height: 23px !important; margin: 0; border-radius: 50%; }
+.room-story-prompt { margin: 16px 0 10px; font-size: 11px; font-weight: 600; }
+.room-story-choices { display: grid; gap: 8px; counter-reset: room-choice; }
+.room-story-choices .room-story-choice { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 43px; padding: 10px 11px; border-radius: 8px; background: #f9f9f1; font-size: 10px; line-height: 1.6; text-align: left; counter-increment: room-choice; }
+.room-story-choice::before { content: counter(room-choice, upper-alpha); display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 auto; border: 1px solid #d8ddc9; border-radius: 50%; color: #97a083; font: 10px Georgia, serif; }
+.room-story-choice:hover:not(:disabled) { translate: 2px 0; }
+.room-story-choices .room-story-choice.is-selected { border-color: #91aa81; background: #edf2e3; }
+.room-story-choice.is-selected::before { color: #fffef5; border-color: #6f8d61; background: #7b996c; }
+.room-story-ending { margin-top: 14px; padding: 12px; border-left: 2px solid #9db387; border-radius: 0 8px 8px 0; background: #f1f3e8; }
+.room-story-ending-label { font-size: 9px; color: #6a895b; font-weight: 650; }
+.room-story-ending p { margin: 5px 0 0; font-size: 11px; line-height: 1.9; color: #708065; }
+.room-story-content .room-story-save { width: 100%; min-height: 33px; margin-top: 10px; border-color: #cdd9c1; background: #edf2e5; color: #67825b; font-size: 10px; }
+.room-story-footnote { margin: 0 18px; padding: 13px 0 17px; border-top: 1px solid var(--room-line); color: #929c85; font-size: 9px; line-height: 1.8; }
+.room-storybook { max-height: 260px; overflow: auto; margin: 0 18px 14px; padding: 12px; border: 1px dashed var(--room-line); border-radius: 9px; background: var(--room-base); }
+.room-storybook h4 { margin: 0 0 8px; font-size: 11px; }
+.room-storybook-entry { position: relative; padding: 10px 0; border-top: 1px solid var(--room-line); }
+.room-storybook-entry strong { display: block; font-size: 10px; }
+.room-storybook-date, .room-storybook-cast { display: block; margin-top: 4px; font-size: 9px; color: var(--room-soft-ink); }
+.room-storybook-entry p, .room-storybook-empty { margin: 5px 0 0; font-size: 10px; line-height: 1.8; color: var(--room-soft-ink); }
+.room-page-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 21px; padding-top: 13px; border-top: 1px solid var(--room-line); color: var(--room-soft-ink); font-size: 9px; }
+.room-state-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.room-state-legend > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.room-state-legend i { width: 5px; height: 5px; border-radius: 50%; background: #94a08b; }
+.room-state-legend .is-online { background: #509870; }
+.room-state-legend .is-busy { background: #d2a052; }
+.room-state-legend .is-attention { background: #c96555; }
+.room-state-note { padding-left: 10px; border-left: 1px solid var(--room-line); opacity: .75; }
+#roomSummary { white-space: nowrap; font-size: 9px; }
+@keyframes office-breathe { 0%, 100% { translate: 0 0; } 50% { translate: 0 -1.5px; } }
+@keyframes office-type { from { translate: 0 0; } to { translate: 1px -2px; } }
+@keyframes office-wave { 0%, 100% { rotate: 130deg; } 50% { rotate: 105deg; } }
+@keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+@keyframes prop-float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -4px; } }
+@keyframes office-steam { 0% { translate: 0 1px; opacity: 0; } 30% { opacity: .8; } 100% { translate: 0 -11px; opacity: 0; } }
+@keyframes office-plant { 0%, 100% { rotate: 0deg; } 30% { rotate: -5deg; } 70% { rotate: 5deg; } }
+@keyframes office-plane { 0% { opacity: 0; translate: -60px 70px; rotate: -12deg; } 12% { opacity: 1; } 47% { translate: 200px -80px; rotate: -22deg; } 72% { translate: 360px -25px; rotate: 16deg; opacity: 1; } 100% { translate: 720px -120px; rotate: -12deg; opacity: 0; } }
+@keyframes office-spark { 0% { opacity: 0; translate: 0 8px; scale: .5; } 30% { opacity: 1; scale: 1; } 100% { opacity: 0; translate: 0 -30px; scale: .8; } }
+[data-theme="dark"] .room-card { --room-ink: #dbe4cc; --room-soft-ink: #9ba78e; --room-green: #8dad83; --room-line: #3b4b3b; --room-paper: #27372e; --room-base: #223027; --room-soft: #344632; }
+[data-theme="dark"] .room-calendar-icon { background: #4b4931; color: #d6bd7a; }
+[data-theme="dark"] .room-moment { background: #2c3d2b; border-color: #48553c; }
+[data-theme="dark"] .room-moment-icon { background: #3c5031; color: #b1bf90; }
+[data-theme="dark"] .room-colleague > button { color: #233524; }
+[data-theme="dark"] .room-story-setup { color: #b2bca2; }
+[data-theme="dark"] .room-story-header h3 > span { background: #514d32; color: #d2bd82; }
+[data-theme="dark"] .room-story-choices .room-story-choice { background: #2b3b30; }
+[data-theme="dark"] .room-story-choices .room-story-choice.is-selected, [data-theme="dark"] .room-story-ending { background: #3c4e34; }
+[data-theme="dark"] .room-story-ending p { color: #cad7b6; }
+[data-theme="dark"] .room-story-content .room-story-save { background: #354a30; border-color: #637d51; color: #c1d5a5; }
+@media (min-width: 1550px) { .room-card { padding: 30px 34px 20px; } .room-layout { grid-template-columns: minmax(0, 1fr) 345px; gap: 25px; } }
+@media (max-width: 1100px) { .room-card { padding: 22px 20px 15px; } .room-layout { grid-template-columns: minmax(0, 1fr) 290px; gap: 16px; } .room-page-heading h2 { font-size: 25px; } .room-page-heading h2 > span { display: none; } .room-play-actions { justify-content: start; } .room-story-header { padding-inline: 15px; } .room-story-header h3 { font-size: 14px; } .room-story-header h3 > span { font-size: 7px; } .room-storybook-toggle { padding-inline: 4px; } .room-toolbar { padding-inline: 13px; } .room-studio-title > span:last-child { display: none; } .room-scene-bottom { padding-inline: 13px; } }
+@media (max-width: 820px) { .room-layout { grid-template-columns: minmax(0, 1fr); } .room-story-card { display: grid; grid-template-columns: 230px minmax(0, 1fr); align-items: start; } .room-story-header { grid-column: 1 / -1; } .room-story-poster { margin: 0 0 18px 15px; height: 185px; } .room-story-content { grid-column: 2; grid-row: 2 / span 2; padding-top: 0; } .room-story-footnote { grid-column: 1; border-top: 0; } .room-storybook { grid-column: 1 / -1; } .room-playbar { flex-direction: row; align-items: center; } .room-playbar > div:first-child { display: block; } .room-calendar { gap: 9px; } .room-page-footer { align-items: start; } }
+@media (max-width: 540px) { .room-card { padding: 18px 12px 12px; border-radius: 17px; } .room-page-heading { align-items: start; gap: 12px; margin-bottom: 18px; } .room-page-heading h2 { font-size: 25px; } .room-eyebrow { font-size: 7px; letter-spacing: 1.5px; } .room-page-heading p { max-width: 210px; font-size: 10px; line-height: 1.8; } .room-calendar-icon { width: 32px; height: 32px; font-size: 20px; } .room-calendar > div { display: none; } .room-toolbar { padding: 10px; } .room-studio-title h3 { font-size: 11px; } .room-light-switch button { padding-inline: 7px; min-height: 29px; } .room-scene-caption { font-size: 16px; } .room-corner-label { font-size: 5px; letter-spacing: 1px; } .room-scene-bottom { padding-inline: 10px; } .room-scene-bottom p { font-size: 8px; gap: 4px; } .room-scene-tips { font-size: 8px; } .room-pagination { gap: 7px; } .room-pagination button { min-height: 32px; width: 32px; } .room-toolbar { flex-wrap: wrap; } .room-playbar { flex-direction: column; align-items: start; padding: 12px 10px; gap: 9px; } .room-playbar > div:first-child { display: flex; gap: 8px; } .room-play-actions { gap: 5px; } .room-play-actions button { min-height: 40px; padding-inline: 9px; } .room-moment { padding: 11px; gap: 9px; } .room-moment p { font-size: 10px; } .room-colleague { padding: 11px; gap: 8px; } .room-colleague-avatar { width: 40px; height: 40px; } .room-colleague-avatar .desk-avatar-box, .room-colleague-avatar .desk-avatar-box .desk-avatar { width: 32px !important; height: 32px !important; } .room-colleague-copy p { font-size: 10px; } .room-colleague > button { padding-inline: 9px; } .room-colleague-heading { gap: 6px; } .room-colleague-heading strong { font-size: 12px; } .room-story-card { display: block; } .room-story-poster { margin: 0 13px; height: 171px; } .room-story-content { padding-top: 17px; } .room-story-header h3 { font-size: 17px; } .room-story-header h3 > span { font-size: 8px; } .room-story-setup, .room-story-choices .room-story-choice { font-size: 12px; } .room-story-choices .room-story-choice { min-height: 47px; } .room-page-footer { flex-direction: column; gap: 8px; margin-top: 16px; } .room-state-legend { gap: 9px; } .room-state-note { display: none !important; } }
+@media (prefers-reduced-motion: reduce) { .room *, .room *::before, .room *::after, .room-card button { animation: none !important; transition: none !important; } .room-paper-plane { display: none; } }
 
 /* ══════════ 作业室皮肤：形状与质感（**挂在页面容器上**）══════════
  *

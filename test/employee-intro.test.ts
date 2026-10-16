@@ -161,7 +161,14 @@ describe('员工 intro 与 AGENTS.md 瘦身模板', () => {
     })
   })
 
-  it('新模板明显变短：含 intro 时仍 < 旧模板字节的 60%', async () => {
+  it('模板保持精简：含 intro 时也不超过 1.2 KB（每一次会话都会注入它）', async () => {
+    /* 这条**改过**。原先断的是"比旧模板小 40%"，用来防"模板重新长回去"。
+       但员工上下文那一轮把"主目录约定"写进了 AGENTS.md（员工主目录与项目执行目录
+       分离之后，这条约定必须每轮都在），体积自然回到与旧模板相当 —— 拿旧模板当尺子
+       已经量不出问题了。
+       真正要守的不变量没变：**它是每一轮都会注入的上下文，不能悄悄膨胀**。
+       所以改成一条显式的字节预算；要放宽就改这个数字，并说清为什么值得。 */
+    const BUDGET_BYTES = 1200
     await withStore(async (store) => {
       const created = await store.create({
         name: '小测',
@@ -169,13 +176,15 @@ describe('员工 intro 与 AGENTS.md 瘦身模板', () => {
         intro: '先给结论',
       })
       const current = await readAgentsMd(store, created.id)
-      const legacy = renderLegacyAgentsMd({ name: '小测', role: '测试' })
       const currentBytes = Buffer.byteLength(current, 'utf8')
-      const legacyBytes = Buffer.byteLength(legacy, 'utf8')
       assert.ok(
-        currentBytes < legacyBytes * 0.6,
-        `新模板 ${currentBytes}B 应小于旧模板 ${legacyBytes}B 的 60%`,
+        currentBytes <= BUDGET_BYTES,
+        `AGENTS.md ${currentBytes}B 超过预算 ${BUDGET_BYTES}B —— 它每轮都会进上下文，` +
+          `要放宽预算请在本用例里显式改数字并写明理由`,
       )
+      /* 顺带钉住"瘦身版"仍然把该说的说清楚了：岗位、intro、以及本机约定都在。 */
+      assert.ok(current.includes('小测'), '岗位说明里要有名字')
+      assert.ok(current.includes('设定：先给结论'), 'intro 要写进去')
     })
   })
 

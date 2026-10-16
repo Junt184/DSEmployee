@@ -267,7 +267,7 @@ export interface EmployeeRecord {
   role: string
   /** 可选：初始提示词/身份补充（写进 AGENTS.md 的「设定」行，trim 后 1–500 字符） */
   intro?: string
-  /** 工作区绝对路径 */
+  /** 员工主目录绝对路径（兼容字段名）；项目会话的执行目录单独绑定。 */
   workspacePath: string
   /** dsh 侧的 workspace 注册 id（可能尚未注册） */
   workspaceId?: string

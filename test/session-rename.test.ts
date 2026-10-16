@@ -34,6 +34,10 @@ let renameReply:
   value: { title: '占位标题', seq: 1 },
 }
 
+/** 装配用的源模板内容：不能含 `includeRuntimeContext: false`（那会被明确拒绝）。 */
+const presetSource = 'plugins:\n  - id: dsh-base\n    config: { includeRuntimeContext: true }\n'
+/** 装配会往 `<DSH_HOME>/.agent-presets/` 写副本；指向临时目录，不碰真实的 ~/.dsh。 */
+let presetHome = ''
 /** 假 dsh 记下的每一次 session.rename / session.create payload。 */
 const renamePayloads: Array<Record<string, unknown>> = []
 const sessionCreatePayloads: Array<Record<string, unknown>> = []
@@ -65,7 +69,8 @@ before(async () => {
   dshServer = createServer((req, res) => {
     let body = ''
     req.on('data', (chunk) => (body += chunk))
-    req.on('end', () => {
+    /* async：agentPreset.copy 那一支要在磁盘上真的写出复制结果。 */
+    req.on('end', async () => {
       const frame = JSON.parse(body) as { rpcId: string; payload?: Record<string, unknown> }
       const reply = (result: unknown): void => {
         res.writeHead(200, { 'content-type': 'application/json' })
@@ -90,6 +95,23 @@ before(async () => {
           return reply({ ok: true, value: { workspaceId: 'ws_fake' } })
         case 'session.list':
           return reply({ ok: true, value: { items: [] } })
+        /* 员工上下文装配要用这三个接口（prepareEmployeeContext）：
+           形状逐字对齐实测 —— list 回 {presets:[{id,isDefault}]}，
+           copy 把源模板复制到 <DSH_HOME>/.agent-presets/<id>/，装配随后读那个文件。 */
+        case 'agentPreset.list':
+          return reply({ ok: true, value: { presets: [
+            { id: 'standard', trust: 'system', isDefault: true, name: '标准模式' },
+            { id: 'code', trust: 'system', isDefault: false, name: 'PTC 模式' },
+            { id: 'minimal', trust: 'system', isDefault: false, name: '极简模式' },
+          ] } })
+        case 'agentPreset.read':
+          return reply({ ok: true, value: { content: presetSource } })
+        case 'agentPreset.copy': {
+          const target = path.join(presetHome, '.agent-presets', String((frame.payload ?? {})['agentPreset']), 'agent.cordis.yml')
+          await mkdir(path.dirname(target), { recursive: true })
+          await writeFile(target, presetSource, 'utf8')
+          return reply({ ok: true, value: { agentPreset: (frame.payload ?? {})['agentPreset'] } })
+        }
         case 'session.create':
           sessionCreatePayloads.push(frame.payload ?? {})
           return reply({
@@ -123,10 +145,13 @@ before(async () => {
     createdAtMs: Date.now(),
   })
 
+  presetHome = path.join(tmpRoot, 'dsh-home')
+  await mkdir(presetHome, { recursive: true })
   agent = new NodeAgent({
     home: path.join(tmpRoot, 'node-home'),
     hubUrl,
     name: 'rename-test-node',
+    dshEnv: { DSH_HOME: presetHome },
     employeeRoot,
     manageDsh: false,
     attachPort: dshPort,

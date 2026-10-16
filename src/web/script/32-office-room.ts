@@ -1,6 +1,6 @@
 /* 32-office-room：「全景」页 —— 左侧是可扩展的小办公室，右侧是本地虚构小剧场。
  *
- * 小办公室里每位员工都有一个独立工位；工位按可用宽度自动换行，人数增多时在场景内滚动查看。
+ * 每间工作室保留六个插画工位，增加员工时自动扩展工作室分页。
  * 点击头像会弹出轻松台词，双击或点「聊两句」进入真实会话。
  *
  * 几条边界：
@@ -13,23 +13,9 @@
  * 台词气泡由 ROOM_TALK_MS 控时，ROOM_LINES 控制内容。
  */
 
-/** 人数 → 头像大小与走位密度：人越多，头像越小、地方越挤。 */
-
 export const CHUNK_32_OFFICE_ROOM = String.raw`
-var ROOM_TIERS = [
-  { id: 't10', max: 10, avatar: 72 },
-  { id: 't20', max: 20, avatar: 62 },
-  { id: 't30', max: 30, avatar: 54 },
-  { id: 't40', max: 40, avatar: 48 },
-  { id: 't50', max: 50, avatar: 42 }
-]
-
-/** 一圈走多久（毫秒）。每个头像在此基础上浮动 ±40%，免得整屋人像仪仗队一样同步。 */
-var ROOM_WALK_MS = 22000
 /** 一句话在气泡里停多久（毫秒）。 */
 var ROOM_TALK_MS = 3600
-/** 头像与场地边缘的最小距离（按头像尺寸的比例算）：不许走到贴边、也不许走出屋子。 */
-var ROOM_EDGE = 0.9
 
 /**
  * 他会说的话。
@@ -143,18 +129,7 @@ var ROOM_LINES = [
   '你先忙，我在这儿'
 ]
 
-/** 人数 → 档位。超过 50 人不截断、不丢人：回落到最密的一档继续排。 */
-function roomTierOf(count) {
-  var n = Number(count)
-  if (!Number.isFinite(n) || n <= 0) return ROOM_TIERS[0]
-  for (var index = 0; index < ROOM_TIERS.length; index += 1) {
-    var tier = ROOM_TIERS[index]
-    if (tier !== undefined && n <= tier.max) return tier
-  }
-  return ROOM_TIERS[ROOM_TIERS.length - 1]
-}
-
-/** 稳定哈希：同一个 id 永远得到同一套走位与同一批台词（刷新不该换个人站你面前）。 */
+/** 稳定哈希：同一个 id 保持服装配色、动效相位与台词起点一致。 */
 function roomHash(text) {
   var value = 2166136261
   var source = String(text)
@@ -177,66 +152,6 @@ function roomClamp(value, min, max) {
   var high = Number(max)
   if (high < low) return low
   return Math.max(low, Math.min(high, Number(value)))
-}
-
-/**
- * 排位：把 n 个人撒进场地。
- *
- * 为什么用"抖动网格"而不是纯随机：纯随机会挤成一团、还会留下大片空白（100 个头像时尤其明显）。
- * 网格保证铺得开，抖动保证不像队列；再按 id 的哈希取抖动，于是每个人的位置是稳定的。
- *
- * 返回的每一项描述一个人的**整条路线**：起点（x, y，像素）、三个绕圈用的相对位移、
- * 一圈的时长与起始相位、以及层次（越靠下越在前面）。
- */
-function roomWalkersOf(ordered, sceneW, sceneH, tier) {
-  var list = Array.isArray(ordered) ? ordered : []
-  var count = list.length
-  if (count === 0) return []
-  var width = Math.max(1, Number(sceneW) || 1)
-  var height = Math.max(1, Number(sceneH) || 1)
-  var avatar = Number(tier.avatar) || 48
-  /* 头像要在格子里放得下：格子边长至少得比头像大一圈 */
-  var cols = Math.max(1, Math.ceil(Math.sqrt((count * width) / height)))
-  var rows = Math.max(1, Math.ceil(count / cols))
-  var cellW = width / cols
-  var cellH = height / rows
-  var margin = avatar * ROOM_EDGE
-  var walkers = []
-
-  list.forEach(function (employee, index) {
-    var id = String(employee.id || '')
-    var seed = roomHash('walker:' + id)
-    var col = index % cols
-    var row = Math.floor(index / cols)
-    /* 抖动幅度留在格子内（±0.32 格），间距还在，看着就散 */
-    var jitterX = (roomPick(seed, 65) / 100 - 0.32) * cellW
-    var jitterY = (roomPick(seed >> 5, 65) / 100 - 0.32) * cellH
-    var startX = roomClamp(col * cellW + cellW / 2 + jitterX, margin, width - margin)
-    var startY = roomClamp(row * cellH + cellH / 2 + jitterY, margin, height - margin)
-    /* 三个绕圈点：以起点为中心，半径取格子的一部分，且**每一个都夹回场地内** ——
-       一个头像走出屋子比它站得挤难看一百倍。 */
-    var radiusX = cellW * (0.26 + roomPick(seed >> 7, 24) / 100)
-    var radiusY = cellH * (0.24 + roomPick(seed >> 11, 22) / 100)
-    var path = []
-    for (var step = 0; step < 3; step += 1) {
-      var angle = (step / 3) * Math.PI * 2 + (roomPick(seed >> (step + 3), 100) / 100) * 0.9
-      var targetX = roomClamp(startX + Math.cos(angle) * radiusX, margin, width - margin)
-      var targetY = roomClamp(startY + Math.sin(angle) * radiusY, margin, height - margin)
-      path.push({ x: Math.round(targetX - startX), y: Math.round(targetY - startY) })
-    }
-    walkers.push({
-      id: id,
-      x: Math.round(startX),
-      y: Math.round(startY),
-      path: path,
-      /* 一圈 21~31 秒：慢一点才像"在屋里转悠"，快一点就像有人在追他 */
-      duration: Math.round(13 + (ROOM_WALK_MS / 1000 - 9) * (0.6 + roomPick(seed >> 13, 80) / 100)),
-      /* 负的延时 = "他已经在路上走了这么久"：一屋人不会同时出发 */
-      delay: -Math.round(roomPick(seed >> 17, 22000) / 1000),
-      depth: Math.round(startY)
-    })
-  })
-  return walkers
 }
 
 /**
@@ -326,12 +241,16 @@ function roomNextLine(employee) {
 
 /** 房间的运行时状态。放片段作用域里（不进 state）：它是**视图层的临时状态**。 */
 var roomView = {
-  layoutKey: '',
+  page: 0,
+  selectedId: '',
+  selectedAvatarKey: '',
+  daypart: '',
+  paused: false,
+  eventCount: { coffee: 0, plane: 0, plant: 0 },
+  eventTimer: null,
   order: '',
   nodes: {},
   talkTimers: {},
-  /* 每个人的落位（由 roomWalkersOf 算出来，布局变了才重算） */
-  spots: [],
   said: 0,
   lastLine: -1,
   storyKey: '',
@@ -474,6 +393,8 @@ function roomStoryRender(focusAfter) {
   var content = $('roomStoryContent')
   if (content === null) return
   var episode = roomStoryEpisodeOf(state.employees)
+  var poster = $('roomStoryPoster')
+  if (poster !== null) poster.setAttribute('data-story', String(episode.story.id || 'plant'))
   var castNames = episode.cast.map(function (employee) { return String(employee.name || employee.id || '同事') })
   if (roomView.storyKey !== episode.key) {
     roomView.storyKey = episode.key
@@ -578,69 +499,126 @@ if (roomStorybookToggle !== null) {
   }
 }
 
-/* ═══ 渲染 ═══ */
+/* ═══ 微缩办公室：固定舞台、真实名册、本地小互动 ═══ */
 
-/** 一个人的头像节点：真头像（员工自己的），带一圈柔和的描边与影子。 */
-function buildRoomWalker(employee, tier, spot) {
+var ROOM_PAGE_SIZE = 6
+var ROOM_SEATS = [
+  { x: 444, y: 335 }, { x: 568, y: 395 }, { x: 692, y: 455 },
+  { x: 306, y: 405 }, { x: 430, y: 465 }, { x: 554, y: 525 }
+]
+var ROOM_DESK_COLORS = ['#708f8b', '#bb826b', '#8e8da8', '#c29b53', '#758dad', '#a1848c']
+
+/** 页码只有视图状态，所有人依照办公区顺序完整分到六人工位中。 */
+function roomPageCount(count) {
+  return Math.max(1, Math.ceil(Math.max(0, Number(count) || 0) / ROOM_PAGE_SIZE))
+}
+
+function roomPageOf(ordered, page) {
+  var list = Array.isArray(ordered) ? ordered : []
+  var index = Math.floor(roomClamp(Number(page) || 0, 0, roomPageCount(list.length) - 1))
+  return list.slice(index * ROOM_PAGE_SIZE, (index + 1) * ROOM_PAGE_SIZE)
+}
+
+function roomOrderedEmployees() {
+  var ordered = []
+  var seen = {}
+  officeSections().forEach(function (section) {
+    section.members.forEach(function (employee) {
+      var id = String(employee.id || '')
+      if (seen[id] === true) return
+      seen[id] = true
+      ordered.push(employee)
+    })
+  })
+  /* 员工刚刚接入、分组尚未刷新时，也不能把新人漏掉。 */
+  state.employees.forEach(function (employee) {
+    var id = String(employee.id || '')
+    if (seen[id] === true) return
+    seen[id] = true
+    ordered.push(employee)
+  })
+  return ordered
+}
+
+function roomSvgElement(tag, attrs) {
+  var node = document.createElementNS('http://www.w3.org/2000/svg', tag)
+  Object.keys(attrs).forEach(function (key) { node.setAttribute(key, attrs[key]) })
+  return node
+}
+
+/** 纯静态的桌椅道具，与整间屋子的等距轴线一致。 */
+function roomDeskObject() {
+  var object = el('span', 'room-desk-object')
+  object.setAttribute('aria-hidden', 'true')
+  var svg = roomSvgElement('svg', { viewBox: '0 0 170 130', width: '170', height: '130', fill: 'none' })
+  var shapes = [
+    ['path', { 'class': 'room-desk-leg', d: 'M22 72V108L29 112V76M146 74V109L139 113V78M88 107V127L94 124V105', fill: '#858678' }],
+    ['path', { 'class': 'room-desk-front', d: 'M8 65L87 111L163 65V73L87 119L8 73Z', fill: '#bf956e' }],
+    ['path', { 'class': 'room-desk-top', d: 'M8 65L84 22L163 65L87 111Z', fill: '#e8c8a3', stroke: '#b78f69', 'stroke-width': '1.2', 'stroke-linejoin': 'round' }],
+    ['path', { 'class': 'room-monitor-stand', d: 'M78 62L65 70L85 81L98 73Z', fill: '#b4b6a8' }],
+    ['path', { 'class': 'room-monitor', d: 'M70 38L110 61V87L70 64Z', fill: '#677f7a', stroke: '#405f5b', 'stroke-width': '2', 'stroke-linejoin': 'round' }],
+    ['path', { 'class': 'room-monitor-screen', d: 'M75 45L105 63V78L75 60Z', fill: '#c8e4db' }],
+    ['path', { 'class': 'room-monitor-code', d: 'M80 51L95 60M80 56L100 68M80 61L91 67', stroke: '#79a69b', 'stroke-width': '1.8', 'stroke-linecap': 'round' }],
+    ['path', { 'class': 'room-desk-paper', d: 'M35 65L51 56L64 64L48 73Z', fill: '#fff7e8', stroke: '#cfba99' }],
+    ['path', { 'class': 'room-desk-pencil', d: 'M40 69L55 60', stroke: '#d38557', 'stroke-width': '2', 'stroke-linecap': 'round' }],
+    ['path', { 'class': 'room-desk-cup', d: 'M128 62V71C128 76 138 76 138 71V62Z', fill: '#f7eed8', stroke: '#b6a083' }],
+    ['ellipse', { cx: '133', cy: '62', rx: '5', ry: '2.5', fill: '#a78361' }],
+    ['path', { d: 'M138 64C146 63 145 72 138 70', stroke: '#d2bba0', 'stroke-width': '2' }]
+  ]
+  shapes.forEach(function (shape) { svg.appendChild(roomSvgElement(shape[0], shape[1])) })
+  object.appendChild(svg)
+  return object
+}
+
+function roomPositionWalker(walker, index) {
+  var spot = ROOM_SEATS[index]
+  if (spot === undefined) return
+  walker.style.setProperty('left', String(spot.x / 10) + '%')
+  walker.style.setProperty('top', String(spot.y / 7.2) + '%')
+  walker.style.setProperty('--seat-index', String(index))
+  walker.style.setProperty('z-index', String(Math.round(spot.y)))
+}
+
+function buildRoomWalker(employee) {
   var id = String(employee.id || '')
   var name = String(employee.name || id)
-  var status = roomStatusOf(employee)
-
-  /* 用 div + role=button，而不是 <button>：气泡里还有一个"聊两句"按钮，
-     按钮里套按钮是无效 HTML（读屏与键盘都会乱） */
   var walker = el('div', 'walker')
   walker.setAttribute('role', 'button')
   walker.setAttribute('tabindex', '0')
   walker.setAttribute('data-emp', id)
-  walker.style.setProperty('--walker-av', String(tier.avatar) + 'px')
-  walker.style.setProperty('--walk-dur', String(spot.duration) + 's')
-  walker.style.setProperty('--walk-delay', String(spot.delay) + 's')
-  walker.style.setProperty('--w-x', String(spot.x) + 'px')
-  walker.style.setProperty('--w-y', String(spot.y) + 'px')
-  walker.style.setProperty('--w-1x', String(roomPathAt(spot.path, 0).x) + 'px')
-  walker.style.setProperty('--w-1y', String(roomPathAt(spot.path, 0).y) + 'px')
-  walker.style.setProperty('--w-2x', String(roomPathAt(spot.path, 1).x) + 'px')
-  walker.style.setProperty('--w-2y', String(roomPathAt(spot.path, 1).y) + 'px')
-  walker.style.setProperty('--w-3x', String(roomPathAt(spot.path, 2).x) + 'px')
-  walker.style.setProperty('--w-3y', String(roomPathAt(spot.path, 2).y) + 'px')
-  walker.style.setProperty('z-index', String(spot.depth))
-
+  walker.style.setProperty('--walker-av', '44px')
+  walker.style.setProperty('--desk-color', ROOM_DESK_COLORS[roomPick(roomHash(id), ROOM_DESK_COLORS.length)])
+  walker.style.setProperty('--walk-delay', String(-roomPick(roomHash(id), 50) / 10) + 's')
+  walker.appendChild(roomDeskObject())
   walker.appendChild(el('span', 'walker-shadow'))
-
+  walker.appendChild(el('span', 'walker-chair'))
   var body = el('span', 'walker-body')
+  body.appendChild(el('span', 'walker-torso'))
   var face = el('span', 'walker-face')
-  face.appendChild(avatarNode(employee, tier.avatar))
+  face.appendChild(avatarNode(employee, 44))
   body.appendChild(face)
   body.appendChild(el('span', 'walker-dot'))
-  var badge = el('span', 'walker-badge')
-  body.appendChild(badge)
   body.appendChild(el('span', 'walker-prop'))
+  body.appendChild(el('span', 'walker-badge'))
   walker.appendChild(body)
-
   walker.appendChild(el('span', 'walker-name', name))
-
-  /* 气泡：默认藏着，点一下才出来。它是那个"点一下他就跟你说话"的地方 */
+  walker.appendChild(el('span', 'walker-role', String(employee.role || '数字同事')))
   var bubble = el('span', 'walker-bubble')
-  var head = el('span', 'walker-bubble-head', name)
-  bubble.appendChild(head)
-  var line = el('span', 'walker-line', '')
-  bubble.appendChild(line)
+  bubble.appendChild(el('span', 'walker-bubble-head', name))
+  bubble.appendChild(el('span', 'walker-line', ''))
+  bubble.appendChild(el('span', 'walker-fiction', '即兴台词'))
   var talk = el('button', 'walker-talk', '聊两句')
   talk.setAttribute('type', 'button')
+  talk.setAttribute('tabindex', '-1')
   talk.setAttribute('aria-label', '和「' + name + '」开始对话')
   bubble.appendChild(talk)
   walker.appendChild(bubble)
-
-  walker.title = '点一下让「' + name + '」说句话（双击直接进对话）'
-  /* 头像是异步缓存的：确保取一次（沿用办公区同一条路径），否则全是线稿脸 */
+  walker.title = '点一下认识「' + name + '」（双击进入对话）'
   ensureAvatar(employee)
   return walker
 }
 
-/**
- * 刷新一个人：**只改属性与文字，不重建节点**。
- * 重建会让正在走的动画、正在飘的气泡全部回到起点 —— 满屋人一起"卡一下"最伤观感。
- */
+/** 状态轮询只改属性，人物和家具节点保持原位。 */
 function patchRoomWalker(walker, employee) {
   var id = String(employee.id || '')
   var name = String(employee.name || id)
@@ -648,229 +626,352 @@ function patchRoomWalker(walker, employee) {
   walker.setAttribute('data-pose', status.pose)
   walker.setAttribute('data-lamp', status.lamp)
   walker.setAttribute('data-unread', status.unread > 0 ? '1' : '0')
-  walker.setAttribute('aria-label', name + '：' + status.text + '。点一下让他说句话，双击开始对话')
+  walker.setAttribute('aria-label', name + '：' + status.text + '。点一下打个招呼，双击开始对话')
+  walker.setAttribute('aria-pressed', id === roomView.selectedId ? 'true' : 'false')
   var badge = walker.querySelector('.walker-badge')
-  if (badge !== null) {
-    badge.textContent = status.unread > 0 ? (status.unread > 99 ? '99+' : String(status.unread)) : ''
-  }
+  if (badge !== null) badge.textContent = status.unread > 0 ? (status.unread > 99 ? '99+' : String(status.unread)) : ''
   var prop = walker.querySelector('.walker-prop')
   if (prop !== null) {
-    /* 三个小道具各说一件事：Zzz=离线、!=卡住、×=工作区没了 */
     prop.setAttribute('data-kind', status.prop)
     prop.textContent = status.prop === 'zzz' ? 'Zzz' : status.prop === 'bang' ? '!' : status.prop === 'dust' ? '×' : ''
   }
   var head = walker.querySelector('.walker-bubble-head')
   if (head !== null) head.textContent = name + ' · ' + status.text
-  if (id === String(state.selectedEmployeeId || '')) walker.classList.add('active')
+  var label = walker.querySelector('.walker-name')
+  if (label !== null) label.textContent = name
+  var role = walker.querySelector('.walker-role')
+  if (role !== null) role.textContent = String(employee.role || '数字同事')
+  if (id === roomView.selectedId) walker.classList.add('active')
   else walker.classList.remove('active')
 }
 
-/** 从路线里安全取一项（越界就报错，不要静默变成 undefined 把坐标写坏）。 */
-function roomPathAt(list, index) {
-  var value = list[index]
-  if (value === undefined) throw new Error('房间布局缺少第 ' + index + ' 项')
-  return value
+function roomSetText(id, text) {
+  var node = $(id)
+  if (node !== null) node.textContent = text
 }
 
-/** 点一下：他的话冒出来。再点一下换一句（同一个人的话不会连着重复）。 */
-function roomSay(walker, employee) {
+function roomSelectedRender(employee) {
+  var talk = $('roomSelectedTalk')
+  if (employee === null || employee === undefined) {
+    roomSetText('roomSelectedName', '等待同事入座')
+    roomSetText('roomSelectedRole', '接入员工后，点工位认识大家')
+    roomSetText('roomSelectedStatus', '暂无员工')
+    roomSetText('roomSelectedQuote', '等待同事入座，一起创造办公室里的小故事。')
+    if (talk !== null) {
+      talk.disabled = true
+      talk.onclick = null
+    }
+    var emptyAvatar = $('roomSelectedAvatar')
+    if (emptyAvatar !== null) clear(emptyAvatar)
+    roomView.selectedAvatarKey = ''
+    return
+  }
+  var id = String(employee.id || '')
+  var status = roomStatusOf(employee)
+  roomSetText('roomSelectedName', String(employee.name || id))
+  roomSetText('roomSelectedRole', String(employee.role || '数字同事'))
+  roomSetText('roomSelectedStatus', status.text + (status.unread > 0 ? ' · ' + String(status.unread) + ' 条未读' : ''))
+  var statusNode = $('roomSelectedStatus')
+  if (statusNode !== null) statusNode.setAttribute('data-kind', status.kind)
+  var avatar = $('roomSelectedAvatar')
+  var cached = state.avatars === undefined ? undefined : state.avatars[id]
+  var avatarKey = id + '|' + String(cached === undefined ? '' : cached)
+  if (avatar !== null && roomView.selectedAvatarKey !== avatarKey) {
+    clear(avatar)
+    avatar.appendChild(avatarNode(employee, 48))
+    roomView.selectedAvatarKey = avatarKey
+  }
+  if (talk !== null) {
+    talk.disabled = false
+    talk.onclick = function () { selectEmployee(id) }
+  }
+}
+
+function roomSelectLocal(employee) {
+  roomView.selectedId = String(employee.id || '')
+  Object.keys(roomView.nodes).forEach(function (id) {
+    var walker = roomView.nodes[id]
+    var selected = id === roomView.selectedId
+    walker.setAttribute('aria-pressed', selected ? 'true' : 'false')
+    if (selected) walker.classList.add('active')
+    else walker.classList.remove('active')
+  })
+  roomSelectedRender(employee)
+}
+
+/** 台词属于本地小剧场，不向员工发送消息。 */
+function roomSay(walker, employee, scriptedLine) {
   if (walker === null || walker === undefined) return
+  /* 一次只留一句小心声，避免相邻工位的气泡互相遮挡。 */
+  Object.keys(roomView.nodes).forEach(function (id) {
+    var other = roomView.nodes[id]
+    if (other === walker) return
+    other.setAttribute('data-talk', '0')
+    var otherTalk = other.querySelector('.walker-talk')
+    if (otherTalk !== null) otherTalk.setAttribute('tabindex', '-1')
+    if (roomView.talkTimers[id] !== undefined && typeof clearTimeout === 'function') clearTimeout(roomView.talkTimers[id])
+    delete roomView.talkTimers[id]
+  })
+  var text = typeof scriptedLine === 'string' ? scriptedLine : roomNextLine(employee)
   var line = walker.querySelector('.walker-line')
-  if (line !== null) line.textContent = roomNextLine(employee)
+  if (line !== null) line.textContent = text
+  if (String(employee.id || '') === roomView.selectedId) roomSetText('roomSelectedQuote', '「' + text + '」 · 即兴台词')
   walker.setAttribute('data-talk', '1')
+  var talk = walker.querySelector('.walker-talk')
+  if (talk !== null) talk.setAttribute('tabindex', '0')
   var id = String(employee.id || '')
   if (typeof setTimeout !== 'function') return
-  if (roomView.talkTimers[id] !== undefined && typeof clearTimeout === 'function') {
-    clearTimeout(roomView.talkTimers[id])
-  }
+  if (roomView.talkTimers[id] !== undefined && typeof clearTimeout === 'function') clearTimeout(roomView.talkTimers[id])
   roomView.talkTimers[id] = setTimeout(function () {
     walker.setAttribute('data-talk', '0')
+    if (talk !== null) talk.setAttribute('tabindex', '-1')
   }, ROOM_TALK_MS)
 }
 
-/**
- * 把点击行为挂上去。
- *
- * 为什么单独抽成一个函数（而不是建节点时顺手写 onclick）：预览页是把场景**序列化成 HTML** 的，
- * 事件处理器不会跟着过去 —— 预览页里点谁都不说话，"看着一样、点着不一样"。
- * 抽出来之后，真页面与预览页调用的是同一份绑定逻辑。
- */
 function roomWalkersBind(root) {
   if (root === null || root === undefined) return
   var walkers = root.querySelectorAll('.walker')
   for (var index = 0; index < walkers.length; index += 1) {
     var walker = walkers[index]
-    if (walker === undefined) continue
-    roomWalkerBind(walker, walker.getAttribute('data-emp') || '')
+    if (walker !== undefined) roomWalkerBind(walker, walker.getAttribute('data-emp') || '')
   }
 }
 
-/** 单个头像的绑定：点一下说话，双击进对话，键盘回车/空格也算点一下。 */
 function roomWalkerBind(walker, id) {
   var employeeOf = function () {
     var found = null
-    state.employees.forEach(function (item) {
-      if (String(item.id || '') === String(id)) found = item
-    })
+    state.employees.forEach(function (item) { if (String(item.id || '') === String(id)) found = item })
     return found
   }
-  walker.onclick = function () {
+  var inspect = function () {
     var employee = employeeOf()
     if (employee === null) return
+    roomSelectLocal(employee)
     roomSay(walker, employee)
   }
-  walker.ondblclick = function () {
-    selectEmployee(String(id))
-  }
+  walker.onclick = inspect
+  walker.ondblclick = function () { selectEmployee(String(id)) }
   walker.onkeydown = function (event) {
+    if (event !== undefined && event !== null && event.target !== undefined && event.target !== null && event.target !== walker) return
     var key = event === undefined || event === null ? '' : String(event.key || '')
     if (key !== 'Enter' && key !== ' ' && key !== 'Spacebar') return
     if (typeof event.preventDefault === 'function') event.preventDefault()
-    var employee = employeeOf()
-    if (employee === null) return
-    roomSay(walker, employee)
+    inspect()
   }
   var talk = walker.querySelector('.walker-talk')
-  if (talk !== null) {
-    talk.onclick = function (event) {
-      /* 气泡里的按钮自己处理，不要让点击再冒到外层去（否则会边说边跳页） */
-      if (typeof event.stopPropagation === 'function') event.stopPropagation()
-      selectEmployee(String(id))
+  if (talk !== null) talk.onclick = function (event) {
+    if (event !== undefined && event !== null && typeof event.stopPropagation === 'function') event.stopPropagation()
+    selectEmployee(String(id))
+  }
+}
+
+var ROOM_LOCAL_EVENTS = {
+  coffee: [
+    { title: '咖啡暂停键', text: '一朵咖啡香云飘过工位。今天的杯子，装的是好心情。', lines: ['这杯叫快乐续杯', '给咖啡画了一颗心'] },
+    { title: '第七杯给想象力', text: '咖啡机认真打出一颗爱心，泡沫宣布自己才是今日主角。', lines: ['拉花有自己的想法', '闻到了周末的味道'] },
+    { title: '杯子也要碰个杯', text: '叮！六只杯子隔空碰杯，为这个普通的小瞬间干杯。', lines: ['为小事开心一下', '今天这杯特别香'] }
+  ],
+  plane: [
+    { title: '一封没有截止日期的信', text: '纸飞机绕办公室兜了一圈，带着「祝你开心」轻轻降落。', lines: ['给风捎个小口信', '收到一张晴天明信片'] },
+    { title: '纸飞机航空首航', text: '本次航班目的地：窗边的太阳。机上供应无限想象力。', lines: ['请收好你的小愿望', '这架飞机自带好心情'] },
+    { title: '风替你跑个腿', text: '一张便签折成小飞机，暂时忘记文字，练习自由飞行。', lines: ['拐弯技术相当不错', '它在和云打招呼'] }
+  ],
+  plant: [
+    { title: '绿萝的微型演讲', text: '你碰了碰叶子，绿萝轻轻摇头：别急，快乐可以慢慢长。', lines: ['它说要再晒五分钟', '今天也是一片好叶子'] },
+    { title: '植物语翻译时间', text: '绿萝抖了抖叶子。翻译结果：请把烦恼寄存在花盆旁。', lines: ['绿萝今天很会安慰人', '叶子鼓掌也很小声'] },
+    { title: '一厘米的冒险', text: '绿萝向阳光挪了想象中的一厘米，并宣布今天的探险圆满结束。', lines: ['小小一步也值得庆祝', '它的目标是整个窗台'] }
+  ]
+}
+
+function roomLocalAction(action) {
+  var options = ROOM_LOCAL_EVENTS[action]
+  if (!Array.isArray(options)) return
+  var count = Number(roomView.eventCount[action] || 0)
+  var event = options[roomPick(count, options.length)]
+  roomView.eventCount[action] = count + 1
+  if (event === undefined) return
+  var stage = $('roomRoom')
+  if (stage !== null) {
+    /* 重播同一个动作也能从头开始；只触碰装饰状态。 */
+    stage.setAttribute('data-event', '')
+    if (typeof stage.getBoundingClientRect === 'function') stage.getBoundingClientRect()
+    stage.setAttribute('data-event', action)
+    stage.setAttribute('data-event-step', String(count % 2))
+  }
+  roomSetText('roomEventTitle', event.title)
+  roomSetText('roomSceneMessage', event.text)
+  roomSetText('roomEventText', '场景彩蛋 · 一段办公室里的即兴小插曲。')
+  var visible = roomPageOf(roomOrderedEmployees(), roomView.page)
+  var speaker = visible[roomPick(count, visible.length)]
+  if (speaker !== undefined) {
+    roomSelectLocal(speaker)
+    roomSay(roomView.nodes[String(speaker.id || '')], speaker, event.lines[roomPick(count, event.lines.length)])
+  }
+  if (roomView.eventTimer !== null && typeof clearTimeout === 'function') clearTimeout(roomView.eventTimer)
+  if (typeof setTimeout === 'function') roomView.eventTimer = setTimeout(function () {
+    if (stage !== null) stage.setAttribute('data-event', '')
+    roomView.eventTimer = null
+  }, 6500)
+}
+
+function roomQueryAll(selector) {
+  return typeof document.querySelectorAll === 'function' ? document.querySelectorAll(selector) : []
+}
+
+function roomLightRender() {
+  var stage = $('roomRoom')
+  var part = roomView.daypart || roomDaypartOf(new Date().getHours())
+  if (stage !== null) stage.setAttribute('data-daypart', part)
+  var controls = roomQueryAll('[data-room-light]')
+  for (var index = 0; index < controls.length; index += 1) {
+    var button = controls[index]
+    if (button === undefined) continue
+    button.setAttribute('aria-pressed', button.getAttribute('data-room-light') === (part === 'dawn' ? 'day' : part) ? 'true' : 'false')
+  }
+}
+
+function roomDateRender() {
+  var now = new Date()
+  if (typeof now.getMonth !== 'function') return
+  var weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+  roomSetText('roomDayLabel', String(now.getMonth() + 1) + ' 月 ' + String(now.getDate()) + ' 日 · ' + weekdays[now.getDay()] + ' · ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'))
+}
+
+function roomChangePage(delta) {
+  var count = roomPageCount(roomOrderedEmployees().length)
+  roomView.page = Math.floor(roomClamp(roomView.page + Number(delta || 0), 0, count - 1))
+  renderOfficeRoom()
+}
+
+function roomControlsBind() {
+  var prev = $('roomPrevPage')
+  var next = $('roomNextPage')
+  if (prev !== null) prev.onclick = function () { roomChangePage(-1) }
+  if (next !== null) next.onclick = function () { roomChangePage(1) }
+  var lights = roomQueryAll('[data-room-light]')
+  for (var index = 0; index < lights.length; index += 1) {
+    var light = lights[index]
+    if (light === undefined) continue
+    light.onclick = function () {
+      roomView.daypart = this.getAttribute('data-room-light') || 'day'
+      roomLightRender()
+    }
+  }
+  var actions = roomQueryAll('[data-room-action]')
+  for (var actionIndex = 0; actionIndex < actions.length; actionIndex += 1) {
+    var button = actions[actionIndex]
+    if (button === undefined) continue
+    button.onclick = function () { roomLocalAction(this.getAttribute('data-room-action') || '') }
+  }
+  var toggles = roomQueryAll('[data-room-ambience]')
+  for (var toggleIndex = 0; toggleIndex < toggles.length; toggleIndex += 1) {
+    var toggle = toggles[toggleIndex]
+    if (toggle === undefined) continue
+    toggle.setAttribute('aria-pressed', roomView.paused ? 'true' : 'false')
+    toggle.onclick = function () {
+      roomView.paused = !roomView.paused
+      var stage = $('roomRoom')
+      if (stage !== null) stage.setAttribute('data-paused', roomView.paused ? 'true' : 'false')
+      this.setAttribute('aria-pressed', roomView.paused ? 'true' : 'false')
+      roomSetText('roomMotionLabel', roomView.paused ? '继续小动作' : '暂停小动作')
     }
   }
 }
 
-/**
- * 重画（或增量刷新）整间屋子。
- *
- * 分三种情况，都是刻意的：
- *   · 场地或人数变了（布局变了）→ 全部重建：走位本来就要重排；
- *   · 人数变了（多了 / 少了员工）→ 只增删差的那些，其余原地保留（走路的动画不重启）；
- *   · 其它（忙闲、未读、改名、选中）→ 只改属性与文字，一个节点都不动。
- */
+function roomClearTalkTimers() {
+  Object.keys(roomView.talkTimers).forEach(function (id) {
+    if (typeof clearTimeout === 'function') clearTimeout(roomView.talkTimers[id])
+  })
+  roomView.talkTimers = {}
+}
+
 function renderOfficeRoom() {
   var stage = $('roomRoom')
   var scene = $('roomFloor')
   if (stage === null || scene === null) return
-  var employees = state.employees
-  var tier = roomTierOf(employees.length)
-
-  stage.setAttribute('data-tier', tier.id)
-  stage.setAttribute('data-count', String(employees.length))
-  stage.setAttribute('data-daypart', roomDaypartOf(new Date().getHours()))
-  stage.style.setProperty('--walker-av', String(tier.avatar) + 'px')
-
-  var sign = $('roomSummary')
-  if (sign !== null) sign.textContent = employees.length === 0 ? '' : roomSummary(employees)
+  var ordered = roomOrderedEmployees()
+  var pages = roomPageCount(ordered.length)
+  roomView.page = Math.floor(roomClamp(roomView.page, 0, pages - 1))
+  var visible = roomPageOf(ordered, roomView.page)
+  stage.setAttribute('data-count', String(ordered.length))
+  stage.setAttribute('data-paused', roomView.paused ? 'true' : 'false')
+  var scale = Math.max(0.1, (Number(stage.clientWidth) || 1000) / 1000)
+  stage.style.setProperty('--office-scale', String(scale))
+  stage.style.setProperty('--office-label-scale', String(Math.max(1, 0.72 / scale)))
+  stage.style.setProperty('--office-bubble-scale', String(Math.max(1, 0.85 / scale)))
+  stage.style.setProperty('--walker-av', '44px')
+  roomLightRender()
+  roomDateRender()
+  roomControlsBind()
+  roomSetText('roomSummary', ordered.length === 0 ? '' : roomSummary(ordered))
+  roomSetText('roomPageLabel', String(roomView.page + 1).padStart(2, '0') + ' / ' + String(pages).padStart(2, '0'))
+  roomSetText('roomStudioName', String(roomView.page + 1).padStart(2, '0') + ' 号工作室')
+  var prev = $('roomPrevPage')
+  var next = $('roomNextPage')
+  if (prev !== null) prev.disabled = roomView.page === 0
+  if (next !== null) next.disabled = roomView.page >= pages - 1
   roomStoryRender()
 
-  if (employees.length === 0) {
+  var orderKey = visible.map(function (employee) { return String(employee.id || '') }).join(',')
+  if (roomView.order !== orderKey || (visible.length === 0 && scene.querySelector('.walker-empty') === null)) {
+    roomClearTalkTimers()
     clear(scene)
     roomView.nodes = {}
-    roomView.talkTimers = {}
-    roomView.order = ''
-    roomView.layoutKey = ''
-    scene.appendChild(
-      el('div', 'empty walker-empty', state.phase === 'ready' ? '（暂无员工：确认终端节点已上线并上报目录）' : '（未连接）')
-    )
+    roomView.order = orderKey
+    visible.forEach(function (employee, index) {
+      var walker = buildRoomWalker(employee)
+      roomPositionWalker(walker, index)
+      roomView.nodes[String(employee.id || '')] = walker
+      scene.appendChild(walker)
+    })
+  }
+  if (visible.length === 0) {
+    roomView.selectedId = ''
+    roomSelectedRender(null)
+    var emptyState = scene.querySelector('.walker-empty')
+    if (emptyState === null) {
+      emptyState = el('div', 'empty walker-empty')
+      scene.appendChild(emptyState)
+    }
+    emptyState.textContent = state.phase === 'ready' ? '工位已经准备好，等待第一位同事入座。暂无员工，请确认节点已上报目录。' : '未连接，连接后就能迎接同事入座。'
+    roomClockStart()
     return
   }
-  clear(scene.querySelector('.walker-empty'))
-
-  /* 排位顺序跟着办公区走（officeSections 已经应用了用户存的组序与组内序）：
-     谁排在前谁先落位，两页不该各排各的。 */
-  var ordered = []
-  officeSections().forEach(function (section) {
-    section.members.forEach(function (employee) {
-      ordered.push(employee)
-    })
-  })
-
-  var size = roomStageSize(stage)
-  var layoutKey = [tier.id, size.w, size.h, ordered.length].join('|')
-  if (roomView.layoutKey !== layoutKey) {
-    clear(scene)
-    roomView.nodes = {}
-    roomView.talkTimers = {}
-    roomView.order = ''
-    roomView.layoutKey = layoutKey
-    scene.style.setProperty('--room-w', String(Math.round(size.w)) + 'px')
-    scene.style.setProperty('--room-h', String(Math.round(size.h)) + 'px')
-    roomView.spots = roomWalkersOf(ordered, size.w, size.h, tier)
+  var selected = null
+  visible.forEach(function (employee) { if (String(employee.id || '') === roomView.selectedId) selected = employee })
+  if (selected === null && roomView.selectedId === '') {
+    visible.forEach(function (employee) { if (String(employee.id || '') === String(state.selectedEmployeeId || '')) selected = employee })
   }
-  var spots = Array.isArray(roomView.spots) ? roomView.spots : []
-
-  var orderKey = ordered
-    .map(function (employee) {
-      return String(employee.id || '')
-    })
-    .join(',')
-  var orderChanged = roomView.order !== orderKey
-  roomView.order = orderKey
-
-  var alive = {}
-  ordered.forEach(function (employee, index) {
-    var id = String(employee.id || '')
-    alive[id] = true
-    var spot = spots[index]
-    if (spot === undefined) return
-    var walker = roomView.nodes[id]
-    var created = false
-    if (walker === undefined) {
-      walker = buildRoomWalker(employee, tier, spot)
-      roomView.nodes[id] = walker
-      created = true
-    }
-    patchRoomWalker(walker, employee)
-    /* 顺序变了要重排 DOM（键盘 Tab 的顺序才会跟视觉一致），平时一个节点都不动 */
-    if (created || orderChanged) scene.appendChild(walker)
-  })
-
-  Object.keys(roomView.nodes).forEach(function (id) {
-    if (alive[id] === true) return
-    var node = roomView.nodes[id]
-    if (node.parentNode !== null) node.parentNode.removeChild(node)
-    delete roomView.nodes[id]
-  })
-
+  if (selected === null) {
+    selected = visible[0]
+    roomView.selectedId = String(selected.id || '')
+    roomSetText('roomSelectedQuote', '点一下工位，听一句小心声。')
+  } else roomView.selectedId = String(selected.id || '')
+  visible.forEach(function (employee) { patchRoomWalker(roomView.nodes[String(employee.id || '')], employee) })
+  roomSelectedRender(selected)
   roomWalkersBind(scene)
   roomClockStart()
 }
 
-/** 只在**正看着这一页**时画：办公区的忙闲轮询每几秒就跑一次，没人看的场景不该跟着重建。 */
 function maybeRenderOfficeRoom() {
   if (state.view !== 'officeRoom') return
   renderOfficeRoom()
 }
 
-/** 场地尺寸（视口被拉大拉小时头像要重新撒一遍，不然会挤在一角）。 */
-function roomStageSize(stage) {
-  if (stage === null) return { w: 0, h: 0 }
-  return { w: Math.max(0, Number(stage.clientWidth) || 0), h: Math.max(0, Number(stage.clientHeight) || 0) }
-}
-
-/**
- * 每十分钟看一眼天色：跨过 20:00 就入夜，不用等数据刷新。
- * 只在自己这一页可见时动 DOM（否则纯属浪费）。
- */
+/** 自动天色每十分钟跟随一次本地时钟；手动选定天色后保留用户的观景选择。 */
 function roomClockStart() {
   if (roomView.timer !== null || typeof setInterval !== 'function') return
   roomView.timer = setInterval(function () {
     if (state.view !== 'officeRoom') return
-    var stage = $('roomRoom')
-    if (stage === null) return
-    stage.setAttribute('data-daypart', roomDaypartOf(new Date().getHours()))
+    roomLightRender()
+    roomDateRender()
     roomStoryRender()
   }, 600000)
 }
 
-/* 窗口尺寸变了要重新撒一遍：场地变宽了而人还挤在旧位置上，看着就像没人管这一页。
-   只在正看着这一页时重排（切回来时 renderOfficeRoom 自己会算）。 */
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   window.addEventListener('resize', function () {
-    if (state.view !== 'officeRoom') return
-    roomView.layoutKey = ''
-    renderOfficeRoom()
+    if (state.view === 'officeRoom') renderOfficeRoom()
   })
 }
 `

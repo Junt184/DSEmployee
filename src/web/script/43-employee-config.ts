@@ -502,7 +502,8 @@ function buildConfigIdentity(employee) {
   intro.oninput = function () { draft.intro = intro.value; touched() }
   panel.appendChild(configField('初始提示词', intro, '在新会话开始时提供给员工。'))
   panel.appendChild(el('div', 'muted config-help', '运行节点：' + String(employee.nodeName || employee.nodeId || '') + '（只读）'))
-  panel.appendChild(el('div', 'muted config-help', '工作区：' + String(employee.workspacePath || '') + '（只读）'))
+  panel.appendChild(el('div', 'muted config-help', '员工主目录：' + String(employee.workspacePath || '') + '（身份、技能和记忆保存在这里）'))
+  panel.appendChild(el('div', 'muted config-help', '在“项目与任务”中选择工作目录和此员工，即可让他参与不同项目；已有会话继续使用原目录。'))
   var file = el('input', ''); file.type = 'file'; file.accept = 'image/png,image/webp,image/gif,image/jpeg'; file.setAttribute('data-config-edit', '')
   panel.appendChild(configField('员工头像', file, 'PNG、WebP、GIF 或 JPEG，最大 2MB。'))
   var avatarActions = el('div', 'config-actions')

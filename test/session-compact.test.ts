@@ -30,6 +30,12 @@ let compactReply:
   | { kind: 'api-error'; code: string; message: string } = { kind: 'no-value' }
 
 /** 假 dsh 记下的每一次 session.create payload（用于核对 preset 取值顺序）。 */
+const presetListPayloads: Array<Record<string, unknown>> = []
+const presetReadPayloads: Array<Record<string, unknown>> = []
+const presetCopyPayloads: Array<Record<string, unknown>> = []
+/** 装配用的源模板内容：不能含 `includeRuntimeContext: false`（那会被明确拒绝）。 */
+const presetSource = 'plugins:\n  - id: dsh-base\n    config: { includeRuntimeContext: true }\n'
+let presetHome = ''
 const sessionCreatePayloads: Array<Record<string, unknown>> = []
 
 let tmpRoot = ''
@@ -59,7 +65,8 @@ before(async () => {
   dshServer = createServer((req, res) => {
     let body = ''
     req.on('data', (chunk) => (body += chunk))
-    req.on('end', () => {
+    /* async：agentPreset.copy 那一支要在磁盘上真的写出复制结果（装配随后会读它）。 */
+    req.on('end', async () => {
       const frame = JSON.parse(body) as { rpcId: string; payload?: Record<string, unknown> }
       const reply = (result: unknown): void => {
         res.writeHead(200, { 'content-type': 'application/json' })
@@ -84,6 +91,26 @@ before(async () => {
           return reply({ ok: true, value: { workspaceId: 'ws_fake' } })
         case 'session.list':
           return reply({ ok: true, value: { items: [] } })
+        /* 员工上下文装配要用这三个接口（prepareEmployeeContext）：
+           形状逐字对齐实测的 dsh 0.1.0-rc.6 —— list 回 {presets:[{id,isDefault}]}。
+           copy 会把源模板复制到 <DSH_HOME>/.agent-presets/<id>/，装配随后读那个文件。 */
+        case 'agentPreset.list':
+          presetListPayloads.push(frame.payload ?? {})
+          return reply({ ok: true, value: { presets: [
+            { id: 'standard', trust: 'system', isDefault: true, name: '标准模式' },
+            { id: 'code', trust: 'system', isDefault: false, name: 'PTC 模式' },
+            { id: 'minimal', trust: 'system', isDefault: false, name: '极简模式' },
+          ] } })
+        case 'agentPreset.read':
+          presetReadPayloads.push(frame.payload ?? {})
+          return reply({ ok: true, value: { content: presetSource } })
+        case 'agentPreset.copy': {
+          presetCopyPayloads.push(frame.payload ?? {})
+          const target = path.join(presetHome, '.agent-presets', String((frame.payload ?? {})['agentPreset']), 'agent.cordis.yml')
+          await mkdir(path.dirname(target), { recursive: true })
+          await writeFile(target, presetSource, 'utf8')
+          return reply({ ok: true, value: { agentPreset: (frame.payload ?? {})['agentPreset'] } })
+        }
         case 'session.create':
           sessionCreatePayloads.push(frame.payload ?? {})
           return reply({
@@ -124,6 +151,10 @@ before(async () => {
     agentPreset: 'minimal',
   })
 
+  /* DSH_HOME 必须指向临时目录：员工上下文装配会往 `<DSH_HOME>/.agent-presets/` 写文件，
+     不指定的话测试会污染真实的 ~/.dsh（那正是这个 harness 之前没暴露的问题）。 */
+  presetHome = path.join(tmpRoot, 'dsh-home')
+  await mkdir(presetHome, { recursive: true })
   agent = new NodeAgent({
     home: path.join(tmpRoot, 'node-home'),
     hubUrl,
@@ -132,6 +163,7 @@ before(async () => {
     manageDsh: false,
     attachPort: dshPort,
     defaultPreset: 'standard',
+    dshEnv: { DSH_HOME: presetHome },
   })
   await agent.start()
 })
@@ -209,20 +241,26 @@ describe('节点侧 session.compact', () => {
 })
 
 describe('session.create 的 preset 取值顺序', () => {
-  it('调用参数 > 员工配置 > 节点默认；三者都无 → 不传（落 dsh 部署默认）', async () => {
+  it('基础模板的取值顺序：调用参数 > 员工配置 > 节点默认 > dsh 自己的默认', async () => {
+    /* 这条**改过**：装配员工上下文之后，发给 dsh 的 `agentPreset` 永远是平台生成的
+       `dse-work-<hash>` 副本，不再等于用户选的那个名字。所以这里改断**基础模板**
+       —— 也就是装配时让 dsh 复制哪一个 preset（`agentPreset.copy` 的 from）。 */
+    const baseOf = (): unknown => presetCopyPayloads.at(-1)?.['from']
+
     // 节点默认（standard）：员工没配、调用没给
     await agent.dispatch('session.create', { employeeId: EMP_NO_PRESET })
-    assert.equal(sessionCreatePayloads.at(-1)?.['agentPreset'], 'standard')
+    assert.equal(baseOf(), 'standard')
+    assert.match(String(sessionCreatePayloads.at(-1)?.['agentPreset']), /^dse-work-/, '发出去的应是平台副本')
 
     // 调用参数显式指定，压过节点默认
     await agent.dispatch('session.create', { employeeId: EMP_NO_PRESET, agentPreset: 'code' })
-    assert.equal(sessionCreatePayloads.at(-1)?.['agentPreset'], 'code')
+    assert.equal(baseOf(), 'code')
 
     // 员工配置（minimal）压过节点默认
     await agent.dispatch('session.create', { employeeId: EMP_WITH_PRESET })
-    assert.equal(sessionCreatePayloads.at(-1)?.['agentPreset'], 'minimal')
+    assert.equal(baseOf(), 'minimal')
 
-    // 没有节点默认的节点 + 无预设员工 → 根本不传 agentPreset
+    // 没有节点默认的节点 + 无预设员工 → 用 dsh 自己报的默认模板（list 里 isDefault 那个）
     const bare = new NodeAgent({
       home: path.join(tmpRoot, 'node-home-bare'),
       hubUrl,
@@ -230,15 +268,12 @@ describe('session.create 的 preset 取值顺序', () => {
       employeeRoot,
       manageDsh: false,
       attachPort: dshPort,
+      dshEnv: { DSH_HOME: presetHome },
     })
     try {
       await bare.start()
       await bare.dispatch('session.create', { employeeId: EMP_NO_PRESET })
-      assert.equal(
-        sessionCreatePayloads.at(-1)?.['agentPreset'],
-        undefined,
-        '没配默认 preset 时不应编造一个',
-      )
+      assert.equal(baseOf(), 'standard', '三者都没有时读 dsh 当前默认（假 dsh 报的是 standard）')
     } finally {
       await bare.stop()
     }

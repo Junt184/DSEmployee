@@ -77,7 +77,8 @@ const USAGE = `dse —— 基于 DeepSeek Harness 的数字员工平台
   dse node --hub <ws-url> --name <节点名> --employee-root <目录> [选项]
       在终端上启动节点代理：托管本机 dsh、上报员工目录、执行 Hub 下发的指令。
       选项：--dsh-home <dir>   指定 dsh 的 DSH_HOME（一台机器跑多个隔离实例时必填）
-            --attach-port <n>  附着到一个已在运行的 dsh，而不是自己拉起（此时不加 --dsh-home）
+            --attach-port <n>  附着到一个已在运行的 dsh，而不是自己拉起
+                               若该实例使用自定义 DSH_HOME，同时给 --dsh-home 供员工会话装配使用
             --dsh-port <n>     托管模式下期望的端口（0 = 自动）
             --dsh <命令>        dsh 可执行文件名
             --dsh-env K=V      传给托管 dsh 子进程的环境变量（可重复）
