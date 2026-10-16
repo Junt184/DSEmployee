@@ -105,8 +105,8 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
       <summary>打开已有目录</summary>
       <form id="projectOpenForm" class="project-open-form">
         <label>执行节点<select id="projectNode" required aria-label="执行节点"></select></label>
-        <label class="project-path-field">节点上的目录<input id="projectPath" required placeholder="例如 /Users/你的名字/Projects/项目 或 D:\\Projects\\项目" autocomplete="off" spellcheck="false"></label>
-        <button id="btnProjectOpen" type="submit" class="primary">打开项目</button>
+        <div class="project-path-field"><span class="muted">节点上的目录</span><span id="projectChosenDirectory" class="project-chosen-directory">点击“打开目录”选择文件夹</span></div>
+        <button id="btnProjectOpen" type="submit" class="primary">打开目录…</button>
       </form>
       <p class="muted">目录必须已经存在于所选节点上；不会搬动文件或覆盖项目规则。</p>
     </details>
@@ -251,13 +251,13 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
     </details>
   </section>
 
-  <!-- 办公室（全景）：一间会自己动的屋子 —— 同事们的头像在屋里到处走，点一下他就说句话。
+  <!-- 办公室（全景）：左侧是可滚动的小办公室工位，右侧是每日虚构小剧场。
        为什么不用背景图：背景图要生图（本仓库没有出图产线），位图还要进指纹、进 PWA 预缓存、
-       为深色主题再出一张；而头像、影子、气泡全是几何图形，CSS 画得出来、零新增素材。
-       这里只有三个容器：
-         #roomSummary 门牌（一句话汇总）、#roomRoom 场地（天色与档位变量在它身上）、
-         #roomFloor 场景层（地面与一个个头像，由脚本 32-office-room 按人数排布与绑定）。
-       头像点一下 = 他说一句（气泡），双击或气泡里的"聊两句" = 走办公区那条现成的入口
+       为深色主题再出一张；而墙面、工位、气泡全由 CSS 与 DOM 绘制，头像沿用员工素材。
+       办公室有三个关键容器：
+         #roomSummary 门牌（一句话汇总）、#roomRoom 场地（墙面与地板）、
+         #roomFloor 可滚动的工位网格（头像由脚本 32-office-room 按人数增删与绑定）。
+       工位头像点一下 = 他说一句（气泡），双击或气泡里的"聊两句" = 走办公区那条现成的入口
        （selectEmployee → 对话视图）。 -->
   <section class="col hidden" id="viewOfficeRoom">
     <section class="card room-card">
@@ -268,13 +268,19 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
       </h2>
       <div class="room-layout">
         <div class="room-stage-column">
+          <div class="room-stage-heading">
+            <div><h3>小办公室</h3><span>每位员工一个工位 · 人多时可滚动查看</span></div>
+          </div>
           <div class="room-hint">点一下谁，他就跟你说句话；双击或点「聊两句」开始真实对话。打字=忙、Zzz=离线、「!」=需处理、角标=未读；这些状态都是真实的。小剧场是虚构演出。</div>
-          <div class="room" id="roomRoom" data-tier="t10" data-daypart="day" role="group"
-            aria-label="办公室全景：同事们的头像在屋里走动，点一下他会说句话，双击开始对话">
-            <!-- 地面：一片椭圆。头像的影子落在它上面，"站在地上"这件事才成立 -->
+          <div class="room room-small-office" id="roomRoom" data-tier="t10" data-daypart="day" role="group"
+            aria-label="小办公室：每位员工有独立工位，人数较多时可滚动查看；点一下头像听一句，双击开始对话">
+            <div class="room-office-backdrop" aria-hidden="true">
+              <span class="room-office-window"></span>
+              <span class="room-office-board">今日灵感</span>
+              <span class="room-office-plant">🪴</span>
+            </div>
             <span class="room-ground"></span>
-            <!-- 场景层：一个个头像由脚本按人数撒在这一层里 -->
-            <div class="room-scene" id="roomFloor"></div>
+            <div class="room-scene" id="roomFloor" tabindex="0" role="group" aria-label="员工工位；员工较多时可在此滚动查看"></div>
           </div>
         </div>
         <aside class="room-story-card" aria-labelledby="roomStoryTitle">
@@ -654,6 +660,14 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
     </section>
   </section>
 </main>
+
+<dialog id="projectDirectoryPicker" class="project-directory-picker" aria-labelledby="projectDirectoryTitle">
+  <div class="project-directory-heading"><div><h2 id="projectDirectoryTitle">选择文件夹</h2><p id="projectDirectoryNode" class="muted"></p></div><button id="btnProjectDirectoryClose" type="button" class="ghost" aria-label="关闭目录选择器">✕</button></div>
+  <div class="project-directory-toolbar"><button id="btnProjectDirectoryBack" type="button" class="ghost" title="返回上一个位置">返回</button><button id="btnProjectDirectoryUp" type="button" class="ghost">上一级</button><button id="btnProjectDirectoryHome" type="button" class="ghost">主目录</button><button id="btnProjectDirectoryRefresh" type="button" class="ghost">刷新</button><label><input id="projectDirectoryHidden" type="checkbox">显示隐藏文件夹</label></div>
+  <nav id="projectDirectoryBreadcrumbs" class="project-directory-breadcrumbs" aria-label="当前位置"></nav>
+  <div class="project-directory-body"><nav id="projectDirectoryLocations" class="project-directory-locations" aria-label="常用位置和磁盘"></nav><div class="project-directory-content"><p id="projectDirectoryStatus" class="muted" role="status" aria-live="polite"></p><div id="projectDirectoryList" class="project-directory-list" aria-label="子文件夹"></div><button id="btnProjectDirectoryMore" type="button" class="ghost hidden">加载更多文件夹</button></div></div>
+  <div class="project-directory-footer"><div class="project-directory-selection"><button id="btnProjectDirectoryCurrent" type="button" class="ghost">选择当前文件夹</button><span id="projectDirectorySelection" class="muted"></span></div><div class="project-directory-actions"><button id="btnProjectDirectoryCancel" type="button" class="ghost">取消</button><button id="btnProjectDirectoryConfirm" type="button" class="primary">打开此文件夹</button></div></div>
+</dialog>
 
 <div class="toasts" id="toasts"></div>
 

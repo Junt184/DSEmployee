@@ -910,10 +910,11 @@ function projectForwarder(method: string): Handler {
   return async (hub, _conn, params) => {
     const input = parse(z.object({ nodeId: nodeIdSchema,
       projectId: z.string().min(1).max(128).optional(), employeeId: employeeIdSchema.optional(),
-      sessionId: sessionIdSchema.optional(), path: z.string().trim().min(1).max(4096).optional(),
+      sessionId: sessionIdSchema.optional(), path: z.string().min(1).max(4096).optional(),
       name: z.string().trim().min(1).max(120).optional(), title: z.string().trim().min(1).max(200).optional(),
+      showHidden: z.boolean().optional(), offset: z.number().int().min(0).max(1_000_000).optional(),
     }).passthrough(), params, method)
-    if (method !== 'project.list' && method !== 'project.open' && input.projectId === undefined) throw protocolError('bad-request', '需要指定项目')
+    if (method !== 'project.list' && method !== 'project.open' && method !== 'project.browse' && input.projectId === undefined) throw protocolError('bad-request', '需要指定项目')
     if (method === 'project.open' && input.path === undefined) throw protocolError('bad-request', '需要指定节点上的目录')
     if (input.employeeId !== undefined && requireEmployee(hub, input.employeeId).nodeId !== input.nodeId) {
       throw protocolError('bad-request', '执行员工与项目必须位于同一节点')
@@ -3161,6 +3162,7 @@ export const hubHandlers: Partial<Record<string, Handler>> = {
 
   /* 会话 */
   'project.list': projectForwarder('project.list'),
+  'project.browse': projectForwarder('project.browse'),
   'project.open': projectForwarder('project.open'),
   'project.files.download': projectForwarder('project.files.download'),
   'session.list': sessionForwarder('session.list', ['employeeId']),

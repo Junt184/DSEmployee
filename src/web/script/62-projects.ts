@@ -6,7 +6,7 @@ var projectWork = {
   serial: 0, listSerial: 0, liveSerial: 0, loading: null, historyLoading: false,
   sending: false, mutating: false, opening: false, running: false, newTask: false,
   notice: '', bad: false, cached: false, subscribed: null, drafts: new Map(),
-  selectedEmployees: {}, paintPending: false, pollPending: false
+  selectedEmployees: {}, paintPending: false, pollPending: false, directorySelection: null
 }
 
 function projectCacheKey() { return 'dse.projects.' + BOOT.hubId }
@@ -134,7 +134,8 @@ function syncProjectControls() {
   var ready = state.phase === 'ready', canRead = ready && state.scopes.indexOf('employee.read') >= 0
   var canPrompt = ready && state.scopes.indexOf('employee.prompt') >= 0, project = projectWork.current
   var session = projectSelectedSession(), busy = projectWork.sending || projectWork.mutating
-  var controls = { btnProjectOpen: canPrompt && canRead && !projectWork.opening, btnProjectRefresh: canRead,
+  var nodeSelect = $('projectNode'), selectedNodeId = nodeSelect === null ? '' : nodeSelect.value
+  var controls = { btnProjectOpen: canPrompt && canRead && selectedNodeId !== '' && !projectWork.opening, btnProjectRefresh: canRead,
     btnProjectNewTask: canPrompt && project !== null, btnProjectRename: canPrompt && session !== null && !busy,
     btnProjectArchive: canPrompt && session !== null && !busy && (!projectWork.running || session.archived),
     btnProjectCancel: canPrompt && projectWork.sessionId !== null && projectWork.running && !projectWork.mutating,
@@ -144,6 +145,7 @@ function syncProjectControls() {
   var archive = $('btnProjectArchive'); if (archive !== null) archive.textContent = session && session.archived ? '恢复' : '归档'
   var send = $('btnProjectSend'); if (send !== null) send.textContent = projectWork.sending ? '正在发送…' : projectWork.running ? '排队发送' : '发送'
   var prompt = $('projectPrompt'); if (prompt !== null) prompt.disabled = project === null
+  syncProjectDirectoryControls()
 }
 function loadProjectWorkspace() {
   restoreProjectWorkspace(); renderProjectNavigation(); renderProjectEmployees()
@@ -192,8 +194,9 @@ function loadProjectWorkspace() {
 function openProjectDirectory(event) {
   if (event) event.preventDefault()
   if (projectWork.opening) return
-  var nodeId = String(($('projectNode') || {}).value || ''), path = String(($('projectPath') || {}).value || '').trim()
-  if (!nodeId || !path) { projectTell('请选择执行节点，并填写该节点上已有目录的完整路径。', true); return }
+  var chosen = projectWork.directorySelection
+  if (!chosen) { openProjectDirectoryPicker(); return }
+  var nodeId = chosen.nodeId, path = chosen.path
   projectWork.opening = true; syncProjectControls()
   rpc('project.open', { nodeId: nodeId, path: path }).then(function (payload) {
     if (!payload || !payload.project || typeof payload.project.projectId !== 'string') throw new Error('节点未返回有效项目')
@@ -480,7 +483,8 @@ function projectFileCard(context, filePath, label) {
 }
 function bindProjectUi() {
   if ($('projectOpenForm') === null) return
-  $('projectOpenForm').onsubmit = openProjectDirectory
+  bindProjectDirectoryPicker()
+  $('projectOpenForm').onsubmit = openProjectDirectoryPicker
   $('btnProjectRefresh').onclick = function () { projectTell('', false); loadProjectWorkspace() }
   $('btnProjectNewTask').onclick = function () { openProjectConversation(null); $('projectPrompt').focus() }
   $('projectShowArchived').onchange = renderProjectNavigation

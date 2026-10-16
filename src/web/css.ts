@@ -2751,25 +2751,19 @@ details.card > summary + * { margin-top: 8px; }
   .ctx-pop { left: auto; right: 0; }
 }
 
-/* ═══ 办公室（全景）：一间会自己动的屋子 ═══
+/* ═══ 办公室（全景）：小办公室与每日小剧场 ═══
  *
  * 上一版是等距伪 3D 的立体工位 —— 桌子椅子墙都在，但看着像工程图、点着像报表。
- * 这一版只做一件事：**头像在场地上到处走，点一下他就说句话**。
+ * 这一版左侧是温暖的小办公室：员工以独立工位呈现，自动换行，人数多时在场景内滚动；
+ * 右侧小剧场提供每日选择与结局收藏。
  * 全部由 DOM + CSS 画出来，没有一张图片（头像用的是员工自己的头像）。
  *
- * 布景只有三层：
- *   1. .room 的底色就是"天色"（四个时段各一层薄薄的罩色，见 data-daypart）；
- *   2. .room-ground 一片椭圆地面 —— 影子落上去，"他站在地上"这件事才成立；
- *   3. .walker 一个人：影子 + 头像 + 状态小灯 + 未读角标 + 说话气泡。
+ * 小办公室布景：
+ *   1. .room 画墙面与地板；
+ *   2. .room-scene 是可滚动的自适应工位网格；
+ *   3. .walker 包含头像、真实状态灯、未读角标与气泡。
  *
- * 走位是脚本按场地尺寸算好的**绝对像素**（脚本会把它夹在场地内，绝不会走出屋子），
- * 这里只负责"让它动起来"：
- *   --w-x / --w-y        起点
- *   --w-1x/1y … 3x/3y    一圈里的三个相对位移（末尾回到起点，所以是个闭环）
- *   --walk-dur           绕一圈多少秒
- *   --walk-delay         相位（负值 = 他已经在路上了，免得一屋人同时出发）
- * 动画只碰 translate / scale / opacity —— 这三样是合成器管的，
- * 50 个人一起走也不会把主线程拖住（改 left/top 就会）。
+ * 卡片上的轻微上下浮动只装饰头像；状态灯与角标不参与剧情。
  */
 
 .room-layout {
@@ -2780,6 +2774,9 @@ details.card > summary + * { margin-top: 8px; }
   margin-top: 12px;
 }
 .room-stage-column { min-width: 0; display: flex; flex-direction: column; }
+.room-stage-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 5px; }
+.room-stage-heading h3 { margin: 0; font-size: 17px; }
+.room-stage-heading span { color: var(--muted); font-size: 11px; }
 .room-hint { margin: 0 0 9px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .room-story-card {
   min-width: 0;
@@ -2878,6 +2875,82 @@ details.card > summary + * { margin-top: 8px; }
   /* 地板上那点柔和的光：不用图片，一层径向渐变就够 */
   isolation: isolate;
 }
+
+/* 小办公室：工位使用自适应网格，员工增加时向下扩展并在场景内滚动，不缩成一团。 */
+.room-small-office {
+  --office-wall: #edf2fa;
+  --office-floor: #ded8ce;
+  --office-floor-line: rgba(81, 94, 112, 0.11);
+  background: linear-gradient(180deg, var(--office-wall) 0 98px, var(--office-floor) 98px 100%);
+}
+.room-small-office::before {
+  content: "";
+  position: absolute;
+  inset: 98px 0 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 47px, var(--office-floor-line) 48px 49px),
+    repeating-linear-gradient(90deg, transparent 0 71px, var(--office-floor-line) 72px 73px);
+  z-index: 0;
+}
+.room-small-office .room-ground { display: none; }
+.room-office-backdrop {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 98px;
+  box-sizing: border-box;
+  padding: 13px 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+.room-office-window {
+  flex: 0 0 112px;
+  height: 62px;
+  box-sizing: border-box;
+  border: 5px solid rgba(255, 255, 255, 0.94);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, transparent 47%, rgba(255, 255, 255, 0.88) 48% 52%, transparent 53%),
+    linear-gradient(0deg, transparent 44%, rgba(255, 255, 255, 0.88) 45% 52%, transparent 53%),
+    linear-gradient(135deg, #b4daf8, #eff9ff);
+  box-shadow: 0 3px 8px rgba(45, 63, 91, 0.16);
+}
+.room-office-board {
+  min-width: 88px;
+  margin: 3px auto 0 0;
+  padding: 7px 12px;
+  border: 1px solid rgba(158, 129, 57, 0.2);
+  border-radius: 4px;
+  background: #fff4c8;
+  color: #6b592b;
+  box-shadow: 0 3px 7px rgba(58, 54, 42, 0.12);
+  font-size: 11px;
+  text-align: center;
+  transform: rotate(-1deg);
+}
+.room-office-plant { margin-top: 23px; font-size: 25px; line-height: 1; }
+.room-small-office .room-scene {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-auto-rows: minmax(136px, auto);
+  align-content: start;
+  gap: 10px;
+  overflow: auto;
+  padding: 108px 14px 16px;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 48%, transparent) transparent;
+}
+[data-theme="dark"] .room-small-office {
+  --office-wall: #202c3b;
+  --office-floor: #302f32;
+  --office-floor-line: rgba(211, 222, 241, 0.1);
+}
+[data-theme="dark"] .room-office-board { background: #5a5037; border-color: rgba(255, 238, 176, 0.18); color: #fff0bd; }
 
 /* 夜里 / 黄昏 / 清晨：一层薄罩色盖在天色上。
    用"罩色"而不是换四个底色，是为了让它在浅色主题与深色主题下都能对上（另见 --scene-tint 的两套值）。 */
@@ -3167,6 +3240,78 @@ details.card > summary + * { margin-top: 8px; }
 .walker[data-pose="alert"] .walker-face { box-shadow: 0 0 0 3px var(--bad), 0 6px 14px var(--scene-shadow); }
 .walker[data-pose="call"] .walker-face { box-shadow: 0 0 0 3px var(--warn), 0 6px 14px var(--scene-shadow); }
 
+/* 小办公室里的员工是工位卡片：自动换行、姓名常显，滚动区容纳任意人数。 */
+.room-small-office .walker {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: auto;
+  height: auto;
+  min-height: 136px;
+  padding: 8px 6px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  box-shadow: 0 4px 11px rgba(43, 55, 75, 0.09);
+  animation: none;
+  animation-delay: 0s;
+  will-change: auto;
+  isolation: isolate;
+  z-index: 1 !important;
+}
+.room-small-office .walker::before {
+  content: "";
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 6px;
+  height: 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-radius: 6px 6px 9px 9px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, white), color-mix(in srgb, var(--panel-2) 82%, var(--accent)));
+  box-shadow: 0 3px 5px rgba(45, 52, 68, 0.1);
+  z-index: -1;
+}
+.room-small-office .walker-shadow { display: none; }
+.room-small-office .walker-body {
+  position: relative;
+  left: auto;
+  top: auto;
+  display: block;
+  animation: walk-bob 3s ease-in-out infinite;
+  z-index: 1;
+}
+.room-small-office .walker-name {
+  position: relative;
+  left: auto;
+  top: auto;
+  display: block;
+  max-width: 100%;
+  margin-top: 5px;
+  padding: 0 3px;
+  transform: none;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+  opacity: 1;
+  z-index: 1;
+}
+.room-small-office .walker-bubble {
+  left: 50%;
+  top: 5px;
+  bottom: auto;
+  transform: translate(-50%, -100%) scale(0.88);
+}
+.room-small-office .walker[data-talk="1"] { z-index: 20 !important; }
+.room-small-office .walker[data-talk="1"] .walker-bubble { transform: translate(-50%, -104%) scale(1); }
+.room-small-office .walker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* 空办公室 */
 .room-scene > .empty {
   position: absolute;
@@ -3225,6 +3370,10 @@ details.card > summary + * { margin-top: 8px; }
   .walker-bubble { max-width: 11em; padding: 6px 9px 7px; }
   .walker-line { font-size: 12.5px; }
   .walker-name { font-size: 11px; }
+}
+@media (max-width: 400px) {
+  .room-office-board { display: none; }
+  .room-small-office .room-scene { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); padding-inline: 10px; }
 }
 
 /* 动效敏感的人：全场静止。
@@ -3582,7 +3731,8 @@ details.card > summary + * { margin-top: 8px; }
 .project-open-form, .project-task-options { display: flex; align-items: end; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
 .project-open-form label, .project-task-options label { display: grid; gap: 6px; min-width: 0; }
 .project-open-form select { max-width: 250px; }
-.project-path-field { flex: 1; min-width: 240px !important; }
+.project-path-field { display: grid; gap: 6px; flex: 1; min-width: 240px; }
+.project-chosen-directory { min-height: 36px; padding-block: 6px; overflow-wrap: anywhere; }
 .project-open-form input, .project-open-form select, .project-task-options input, .project-task-options select { width: 100%; box-sizing: border-box; }
 .project-notice { min-height: 1.5em; white-space: pre-wrap; overflow-wrap: anywhere; }
 .project-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -3612,14 +3762,64 @@ details.card > summary + * { margin-top: 8px; }
 .project-task-options { margin-top: 0; }
 .project-task-options label { flex: 1; min-width: 170px; }
 .project-composer-actions .muted { font-size: 11px; }
+/* 浏览所选执行节点的目录；路径仅展示，通过文件夹列表点选。 */
+.project-directory-picker { width: min(820px, calc(100% - 32px)); height: min(680px, calc(100vh - 48px)); height: min(680px, calc(100dvh - 48px)); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); color: var(--fg); font: inherit; box-shadow: 0 18px 70px #0005; overflow: hidden; }
+.project-directory-picker[open] { display: flex; flex-direction: column; }
+.project-directory-picker::backdrop { background: #0007; }
+.project-directory-picker button { min-height: 40px; }
+.project-directory-picker button:focus-visible, .project-directory-picker input:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.project-directory-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; padding: 16px 18px 10px; }
+.project-directory-heading > div { min-width: 0; }
+.project-directory-heading h2 { margin: 0; font-size: 18px; }
+.project-directory-heading p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+.project-directory-heading > button { flex: 0 0 auto; }
+.project-directory-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0 18px 10px; }
+.project-directory-toolbar button { padding-inline: 10px; }
+.project-directory-toolbar label { display: flex; align-items: center; gap: 6px; min-height: 40px; margin-left: auto; font-size: 12px; cursor: pointer; }
+.project-directory-breadcrumbs { display: flex; flex: 0 0 auto; align-items: center; min-height: 44px; overflow-x: auto; padding: 2px 12px; border-block: 1px solid var(--line); background: var(--panel-2); }
+.project-directory-breadcrumbs button { flex: 0 0 auto; border-color: transparent; padding-inline: 9px; }
+.project-directory-breadcrumbs button + button::before { content: '›'; margin-right: 12px; color: var(--muted); }
+.project-directory-breadcrumbs button[aria-current] { color: var(--accent); font-weight: 600; }
+.project-directory-body { display: grid; grid-template-columns: 150px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
+.project-directory-locations { display: flex; flex-direction: column; gap: 4px; padding: 12px 8px; border-right: 1px solid var(--line); overflow-y: auto; }
+.project-directory-locations button { flex: 0 0 auto; text-align: left; border-color: transparent; overflow-wrap: anywhere; }
+.project-directory-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px 12px; }
+#projectDirectoryStatus { flex: 0 0 auto; margin: 0 0 8px; font-size: 12px; overflow-wrap: anywhere; }
+#projectDirectoryStatus.bad { color: var(--bad); }
+.project-directory-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.project-directory-row { display: flex; align-items: stretch; margin-bottom: 3px; border: 1px solid transparent; border-radius: var(--radius-sm); }
+.project-directory-row.selected { background: var(--active-bg); border-color: var(--accent); }
+.project-directory-row button { border-color: transparent; border-radius: var(--radius-xs); }
+.project-directory-row .project-directory-name { flex: 1 1 auto; min-width: 0; text-align: left; overflow-wrap: anywhere; user-select: none; }
+.project-directory-row .project-directory-enter { flex: 0 0 44px; font-size: 22px; line-height: 1; border-left: 1px solid var(--line); }
+#btnProjectDirectoryMore { flex: 0 0 auto; margin-top: 6px; font-size: 12px; }
+.project-directory-footer { flex: 0 0 auto; padding: 12px 18px; border-top: 1px solid var(--line); }
+.project-directory-selection { display: flex; align-items: center; gap: 10px; min-width: 0; margin-bottom: 12px; }
+.project-directory-selection button { flex: 0 0 auto; font-size: 12px; }
+.project-directory-selection span { min-width: 0; max-height: 4.5em; overflow-y: auto; overflow-wrap: anywhere; font-size: 12px; }
+.project-directory-actions { display: flex; justify-content: end; gap: 8px; }
 @media (max-width: 900px) {
   .project-grid { grid-template-columns: minmax(0, 1fr); }
   .project-navigation { max-height: 260px; }
   .project-list { margin-bottom: 10px; }
   .project-open-form { align-items: stretch; }
-  .project-open-form > label, .project-open-form > button { width: 100%; min-width: 0 !important; }
+  .project-open-form > label, .project-open-form > button, .project-open-form > .project-path-field { width: 100%; min-width: 0; }
   .project-open-form select { max-width: none; }
   .project-conversation-heading { flex-direction: column; }
   .project-messages { height: 55vh; padding: 12px; }
+}
+@media (max-width: 600px) {
+  .project-directory-picker { width: calc(100% - 16px); height: calc(100vh - 16px); height: calc(100dvh - 16px); }
+  .project-directory-picker button { min-height: 44px; }
+  .project-directory-heading { padding: 12px 12px 8px; }
+  .project-directory-toolbar { padding-inline: 12px; gap: 4px; }
+  .project-directory-toolbar label { margin-left: 0; }
+  .project-directory-body { display: flex; flex-direction: column; }
+  .project-directory-locations { flex: 0 0 auto; flex-direction: row; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .project-directory-locations button { white-space: nowrap; }
+  .project-directory-content { flex: 1 1 auto; padding: 8px; }
+  .project-directory-footer { padding: 10px 12px; }
+  .project-directory-selection { gap: 8px; margin-bottom: 8px; }
+  .project-directory-actions button { flex: 1 1 0; }
 }
 `

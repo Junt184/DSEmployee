@@ -8,6 +8,7 @@ import type { DiscoveredEmployee, EmployeeStore } from './employees.ts'
 import { applyLlmToSession } from './employee-llm.ts'
 import { SessionArchiveStore } from './session-archive.ts'
 import { FILE_DELIVERY_TEXT } from './file-delivery.ts'
+import { browseProjectDirectories } from './directories.ts'
 import { historyEntrySeq, pageEvents, sanitizeHistoryEvents } from './session-payload.ts'
 
 export interface ProjectRecord {
@@ -83,8 +84,8 @@ export class ProjectStore {
     }
   }
   async open(inputPath: string, name?: string): Promise<ProjectRecord> {
-    const expanded = expandHome(inputPath.trim())
-    if (!path.isAbsolute(expanded) || expanded.includes('\0')) throw protocolError('bad-request', '请输入执行节点上的绝对目录路径')
+    const expanded = expandHome(inputPath)
+    if (!path.isAbsolute(expanded) || expanded.includes('\0')) throw protocolError('bad-request', '请先选择执行节点上的文件夹')
     let canonical: string
     try {
       canonical = await realpath(expanded)
@@ -194,6 +195,7 @@ export class ProjectRuntime {
   async handle(method: string, params: Record<string, unknown>): Promise<unknown> {
     if (params['nodeId'] !== undefined && params['nodeId'] !== this.store.nodeId) throw protocolError('forbidden', '项目不属于这个节点')
     if (method === 'project.list') return { projects: this.store.projects() }
+    if (method === 'project.browse') return browseProjectDirectories(params, this.#employees.root)
     if (method === 'project.open') {
       const project = await this.store.open(required(params, 'path'), typeof params['name'] === 'string' ? params['name'] : undefined)
       // 接入已有目录时一次性登记其已有 dsh 会话，不重建会话、不重发提示词、不改模型。

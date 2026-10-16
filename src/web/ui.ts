@@ -71,6 +71,7 @@ import { CHUNK_45_JOBS } from './script/45-jobs.ts'
 import { CHUNK_50_HEALTH } from './script/50-health.ts'
 import { CHUNK_55_POSITIONS } from './script/55-positions.ts'
 import { CHUNK_60_SESSIONS } from './script/60-sessions.ts'
+import { CHUNK_61_DIRECTORY_PICKER } from './script/61-directory-picker.ts'
 import { CHUNK_62_PROJECTS } from './script/62-projects.ts'
 import { CHUNK_65_CHAT } from './script/65-chat.ts'
 import { CHUNK_67_SECRETARY } from './script/67-secretary.ts'
@@ -97,6 +98,7 @@ export const CONTROL_UI_SCRIPT =
   CHUNK_50_HEALTH +
   CHUNK_55_POSITIONS +
   CHUNK_60_SESSIONS +
+  CHUNK_61_DIRECTORY_PICKER +
   CHUNK_62_PROJECTS +
   CHUNK_65_CHAT +
   CHUNK_67_SECRETARY +

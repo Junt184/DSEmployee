@@ -171,6 +171,10 @@ export const METHODS = {
     scopes: ['employee.read'], route: 'relay', roles: OPERATOR_ONLY,
     summary: '列出指定节点已接入的项目目录',
   },
+  'project.browse': {
+    scopes: ['employee.read', 'employee.prompt'], route: 'relay', roles: OPERATOR_ONLY,
+    summary: '浏览指定节点上的文件夹、主目录与磁盘，供目录选择器点选',
+  },
   'project.open': {
     scopes: ['employee.read', 'employee.prompt'], route: 'relay', roles: OPERATOR_ONLY, idempotent: true,
     summary: '接入节点上的已有目录，不修改项目文件或员工配置',
