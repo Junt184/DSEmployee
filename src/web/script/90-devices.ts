@@ -372,6 +372,7 @@ function clearLocalToken() {
 }
 
 function bindEvents() {
+  bindProjectUi()
   /* 秘书页外壳的控件（下拉箭头 / 看板关闭 / Esc）。这里**总会执行**，
      所以绑在这里而不是 selectEmployee 里 —— 后者只在点过工位后才跑。 */
   bindSecretaryUi()

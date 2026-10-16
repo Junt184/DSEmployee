@@ -74,7 +74,9 @@ function asideRow(box, key, value) {
 }
 
 function downloadEmployeeFile(employeeId, filePath) {
-  return rpc('employee.files.download', { employeeId: employeeId, path: filePath })
+  var isProject = employeeId !== null && typeof employeeId === 'object' && typeof employeeId.projectId === 'string'
+  var params = isProject ? { nodeId: employeeId.nodeId, projectId: employeeId.projectId, path: filePath } : { employeeId: employeeId, path: filePath }
+  return rpc(isProject ? 'project.files.download' : 'employee.files.download', params)
     .then(function (payload) {
       if (payload === null || typeof payload !== 'object' || typeof payload.dataBase64 !== 'string') {
         throw new Error('服务端没有返回文件内容')

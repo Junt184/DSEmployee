@@ -87,6 +87,8 @@ const EXPECTED_IDS: Record<string, string> = {
   devices: 'viewDevices',
   health: 'viewHealth',
   llm: 'viewLlm',
+  /* 项目与任务：新的一级视图（接入一个目录 = 一个项目，会话挂在项目下）。 */
+  projects: 'viewProjects',
   /* 导航重构后，chat 这一页的容器是**外壳** `#viewChatShell`（窄栏 + 面板 + 工作区），
      `#viewChat` 变成它里面的工作区。视图表指向外壳，这一份预期也要跟着走。 */
   chat: 'viewChatShell',
@@ -205,6 +207,9 @@ function makeHarness(): Harness {
     /* 切走某一页时要收回窄屏的临时导航抽屉（导航重构加的）。
        它不是这一组要测的"进入某页拉什么数据"，替身掉。 */
     closeSessionNavDrawer: (): void => {},
+    /* 项目页的取数（进入项目页时读项目列表/草稿）。这一组只关心"进哪一页拉哪一页"，
+       所以同样替身掉 —— 它自己的取数由 62-projects 那边的用例守。 */
+    loadProjectWorkspace: (): void => void loaded.push('projects'),
     /* 切回办公区时重画工位（新的 office loader 用它在切换后更新当前员工高亮）。
        这一组测的是"视图表 ↔ 容器 ↔ 拉数"，工位怎么画不在范围内。 */
     renderEmployees: (): void => {},
@@ -281,10 +286,13 @@ describe('标签与视图表必须双向对得上', () => {
     assert.ok(!tabViews(PAGE).includes('chat'), 'chat 混进了标签条 —— 点进去会没有返回键可用')
   })
 
-  it('标签顺序：办公区在最前，模型配置在最后', () => {
+  it('标签顺序：最常用的在前，配置页永远在最后', () => {
     const views = tabViews(PAGE)
-    assert.equal(views[0], 'office')
-    assert.equal(views[views.length - 1], 'llm')
+    /* 「员工配置」是配一次就不动的，永远排在最后（这条不变）。
+       前两位现在是「项目与任务 → 办公区」：项目成为新的入口页**是产品决定**，
+       所以这里把它显式写下来 —— 顺序变了要有人改这条断言，而不是悄悄变。 */
+    assert.equal(views[views.length - 1], 'llm', '「员工配置」应当仍在最后')
+    assert.deepEqual(views.slice(0, 2), ['projects', 'office'])
   })
 
   it('审批 / 设备 / 体检 已经不在办公区那一列里（这就是这次改动的目的）', () => {
@@ -351,6 +359,8 @@ describe('setView 的真实行为（跑交付脚本里的真源码）', () => {
     /* 员工配置页：端点库是共享事实，进页面就得拉；员工那半用注册摘要直接渲染。
        节点权限**不在这里拉** —— 它归「节点设置」子页，进去才读（见下一条）。 */
     assert.deepEqual(harness.loaded, ['health', 'approvals', 'llm.endpoints', 'llm'])
+    harness.setView('projects')
+    assert.deepEqual(harness.loaded, ['health', 'approvals', 'llm.endpoints', 'llm', 'projects'])
   })
 
   it('节点权限只在进入「节点设置」子页时才读', () => {

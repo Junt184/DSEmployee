@@ -4,12 +4,12 @@ import { writeFileAtomic } from '../util/fsx.ts'
 
 const START = '<!-- dsemployee:file-delivery:start -->'
 const END = '<!-- dsemployee:file-delivery:end -->'
-const INSTRUCTIONS = [
-  START,
+/** 项目会话只随首次指令携带，不把交付约定写进接入的项目。 */
+export const FILE_DELIVERY_TEXT = [
   '向用户发送文件：先把真实文件写入本工作区（建议放交付物/），再在回复正文中写 [文件名](dse-file:相对路径)，控制台会显示下载卡片。',
   '例如：[报告.pdf](dse-file:交付物/报告.pdf)。路径中的空格、括号、#、? 用 URL 编码；不要把链接放进代码块，不要使用绝对路径或 file://，不要链接尚未生成的文件。单文件下载上限 2 MB，超过时先拆分。',
-  END,
 ].join('\n')
+const INSTRUCTIONS = [START, FILE_DELIVERY_TEXT, END].join('\n')
 
 /** dsh 自动加载本地 overlay；只管理自己的块，保留用户的岗位说明与本机补充。 */
 export async function ensureFileDeliveryInstructions(workspacePath: string): Promise<void> {

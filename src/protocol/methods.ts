@@ -166,7 +166,21 @@ export const METHODS = {
     summary: '节点上报一个本机配对码（短命，供新设备就近授权）',
   },
 
-  /* ── 员工（= 工作区）── */
+  /* 项目目录与员工独立。路径只在所选节点上解释，不接收客户端文件系统路径映射。 */
+  'project.list': {
+    scopes: ['employee.read'], route: 'relay', roles: OPERATOR_ONLY,
+    summary: '列出指定节点已接入的项目目录',
+  },
+  'project.open': {
+    scopes: ['employee.read', 'employee.prompt'], route: 'relay', roles: OPERATOR_ONLY, idempotent: true,
+    summary: '接入节点上的已有目录，不修改项目文件或员工配置',
+  },
+  'project.files.download': {
+    scopes: ['employee.read'], route: 'relay', roles: OPERATOR_ONLY,
+    summary: '下载项目内的一个文件（≤2MB）',
+  },
+
+  /* ── 员工（保留原来的个人工作区）── */
   'employee.list': {
     scopes: ['employee.read'],
     route: 'hub',
@@ -382,14 +396,14 @@ export const METHODS = {
     scopes: ['employee.read'],
     route: 'node',
     roles: BOTH,
-    summary: '列出某个员工工作区下的会话',
+    summary: '列出员工的会话，或指定节点、项目下的会话',
   },
   'session.create': {
     scopes: ['employee.prompt'],
     route: 'node',
     idempotent: true,
     roles: OPERATOR_ONLY,
-    summary: '在员工工作区下新建一个会话（可选命名：title，节点侧两步落名）',
+    summary: '在员工工作区或指定项目下新建会话（可选命名：title）；项目会话可不指定员工',
   },
   'session.prompt': {
     scopes: ['employee.prompt'],

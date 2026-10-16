@@ -2772,6 +2772,85 @@ details.card > summary + * { margin-top: 8px; }
  * 50 个人一起走也不会把主线程拖住（改 left/top 就会）。
  */
 
+.room-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(290px, 0.85fr);
+  gap: 16px;
+  align-items: stretch;
+  margin-top: 12px;
+}
+.room-stage-column { min-width: 0; display: flex; flex-direction: column; }
+.room-hint { margin: 0 0 9px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.room-story-card {
+  min-width: 0;
+  min-height: 360px;
+  padding: 17px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background:
+    radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 48%),
+    var(--panel-2);
+}
+.room-story-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.room-story-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+}
+.room-story-header h3 { margin: 7px 0 0; font-size: 18px; line-height: 1.35; }
+.room-storybook-toggle { flex: 0 0 auto; min-height: 30px; padding: 4px 9px; font-size: 12px; }
+.room-storybook-toggle span {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 3px;
+  padding: 0 4px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  font-weight: 700;
+}
+.room-story-content { min-width: 0; margin-top: 16px; }
+.room-story-meta { display: flex; align-items: center; gap: 7px; }
+.room-story-meta span { font-size: 11px; }
+.room-story-date { color: var(--muted); }
+.room-story-fiction { color: var(--warn); font-weight: 700; }
+.room-story-title { margin: 8px 0 5px; font-size: 20px; line-height: 1.35; }
+.room-story-setup { margin: 0; color: var(--fg); font-size: 13px; line-height: 1.65; }
+.room-story-cast { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.room-story-cast-label { color: var(--muted); font-size: 11px; }
+.room-story-actor { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
+.room-story-actor .desk-avatar-box { width: 25px; height: 25px; margin: 0; }
+.room-story-actor .desk-avatar-box .desk-avatar { width: 100%; height: 100%; margin: 0; border-radius: 50%; }
+.room-story-prompt { margin: 13px 0 7px; font-size: 12px; font-weight: 700; }
+.room-story-choices { display: grid; gap: 7px; }
+.room-story-choice { width: 100%; min-height: 38px; padding: 8px 10px; text-align: left; font-size: 12px; transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease; }
+.room-story-choice:hover:not(:disabled) { transform: translateY(-1px); }
+.room-story-choice.is-selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.room-story-ending { margin-top: 10px; padding: 10px 11px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
+.room-story-ending-label { color: var(--accent); font-size: 11px; font-weight: 800; }
+.room-story-ending p { margin: 4px 0 0; font-size: 12px; line-height: 1.6; }
+.room-story-save { align-self: flex-start; min-height: 32px; margin-top: 9px; padding: 5px 10px; font-size: 12px; }
+.room-story-footnote { margin: auto 0 0; padding-top: 12px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.room-storybook { min-height: 0; max-height: 190px; margin-top: 10px; padding-top: 10px; overflow: auto; border-top: 1px solid var(--line); }
+.room-storybook h4 { margin: 0 0 7px; font-size: 12px; }
+.room-storybook-entry { position: relative; padding: 8px 0; border-top: 1px solid var(--line); }
+.room-storybook-entry strong { display: block; padding-right: 46px; font-size: 11px; }
+.room-storybook-date { position: absolute; top: 8px; right: 0; font-size: 10px; }
+.room-storybook-cast { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+.room-storybook-entry p, .room-storybook-empty { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.room-storybook-empty { padding: 3px 0 8px; }
+
 .room {
   /* —— 天色与地面：白天一套 —— */
   --scene-sky-1: #eef5ff;
@@ -3136,6 +3215,11 @@ details.card > summary + * { margin-top: 8px; }
 }
 
 /* 窄屏：气泡与姓名牌跟着小一号（场地本身高度已经是 vh，不用担心放不下） */
+@media (max-width: 980px) {
+  .room-layout { grid-template-columns: minmax(0, 1fr); }
+  .room-story-card { min-height: 0; }
+  .room-story-footnote { margin-top: 18px; }
+}
 @media (max-width: 720px) {
   .room { height: min(66vh, 560px); border-radius: 12px; }
   .walker-bubble { max-width: 11em; padding: 6px 9px 7px; }
@@ -3489,4 +3573,53 @@ details.card > summary + * { margin-top: 8px; }
   #viewChat:not([class*="layout-"]) > .composer textarea { min-height: 40px; padding-inline: 7px; }
 }
 
+/* 项目工作台：目录与任务为入口，沿用现有配色与控件。 */
+.project-workspace { grid-column: 1 / -1; min-width: 0; }
+.project-heading, .project-task-heading, .project-conversation-heading, .project-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.project-heading h2, .project-conversation-heading h3 { margin: 0; }
+.project-conversation-heading h3 { overflow-wrap: anywhere; }
+.project-open summary, .project-navigation summary { cursor: pointer; font-weight: 600; padding-block: 6px; }
+.project-open-form, .project-task-options { display: flex; align-items: end; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.project-open-form label, .project-task-options label { display: grid; gap: 6px; min-width: 0; }
+.project-open-form select { max-width: 250px; }
+.project-path-field { flex: 1; min-width: 240px !important; }
+.project-open-form input, .project-open-form select, .project-task-options input, .project-task-options select { width: 100%; box-sizing: border-box; }
+.project-notice { min-height: 1.5em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.project-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+.project-navigation, .project-conversation { min-width: 0; }
+.project-navigation { max-height: 80vh; overflow: auto; }
+.project-list { display: grid; gap: 5px; margin-block: 10px 18px; }
+.project-list button { text-align: left; display: grid; gap: 4px; min-height: 44px; width: 100%; overflow-wrap: anywhere; }
+.project-list button.selected { border-color: var(--accent, #5378d6); background: color-mix(in srgb, var(--accent, #5378d6) 12%, transparent); }
+.project-list .muted { font-size: 11px; overflow-wrap: anywhere; }
+.project-archive-filter { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.project-archive-filter input { width: auto; }
+.project-conversation { padding: 0; overflow: hidden; }
+.project-conversation-heading { padding: 16px; align-items: start; border-bottom: 1px solid var(--line); }
+.project-conversation-heading > div:first-child { min-width: 0; }
+.project-environment { margin-top: 7px; overflow-wrap: anywhere; font-size: 12px; }
+.project-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-shrink: 0; }
+.project-messages { min-height: 220px; height: min(55vh, 650px); overflow: auto; padding: 18px; display: flex; flex-direction: column; gap: 16px; overflow-wrap: anywhere; }
+.project-message { min-width: 0; }
+.project-message > .muted { font-size: 11px; margin-bottom: 5px; }
+.project-message.user { margin-left: 8%; }
+.project-message.user > .project-message-body { white-space: pre-wrap; background: color-mix(in srgb, var(--accent, #5378d6) 9%, transparent); border-radius: 10px; padding: 12px; }
+.project-message-body { min-width: 0; overflow-wrap: anywhere; }
+.project-message-body pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.project-message.error { border-left: 3px solid var(--bad); padding-left: 12px; }
+.project-composer { padding: 14px 16px; border-top: 1px solid var(--line); }
+.project-composer textarea { width: 100%; min-height: 90px; box-sizing: border-box; resize: vertical; margin-block: 12px; }
+.project-task-options { margin-top: 0; }
+.project-task-options label { flex: 1; min-width: 170px; }
+.project-composer-actions .muted { font-size: 11px; }
+@media (max-width: 900px) {
+  .project-grid { grid-template-columns: minmax(0, 1fr); }
+  .project-navigation { max-height: 260px; }
+  .project-list { margin-bottom: 10px; }
+  .project-open-form { align-items: stretch; }
+  .project-open-form > label, .project-open-form > button { width: 100%; min-width: 0 !important; }
+  .project-open-form select { max-width: none; }
+  .project-conversation-heading { flex-direction: column; }
+  .project-messages { height: 55vh; padding: 12px; }
+}
 `

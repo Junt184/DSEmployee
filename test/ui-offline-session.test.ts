@@ -193,10 +193,15 @@ describe('接线（结构护栏）', () => {
     assert.match(extractFunction('openSession'), /rememberSession\(/)
   })
 
-  it('loadEmployees 收尾时按"离线→在线"这一次翻转决定要不要重接会话', () => {
+  it('loadEmployees 收尾时按"离线→在线"这一次翻转决定要不要重接会话（项目页除外）', () => {
     const body = extractFunction('loadEmployees')
-    /* 必须在 state.employees 更新**之后**判：判定读的就是那里的 nodeOnline */
-    assert.match(body, /if \(noteNodeOnline\(state\.employees\) === true\) resumeSelectedSession\(\)/)
+    /* 必须在 state.employees 更新**之后**判：判定读的就是那里的 nodeOnline。
+       后面那个 `state.view !== 'projects'` 是**有意的例外**：项目页有自己的会话上下文
+       （项目 → 任务），后台的在线翻转不该把用户正看着的东西抢走。 */
+    assert.match(
+      body,
+      /if \(noteNodeOnline\(state\.employees\) === true && state\.view !== 'projects'\) resumeSelectedSession\(\)/,
+    )
     assert.ok(
       body.indexOf('resumeSelectedSession()') > body.indexOf('state.employees = list.filter'),
       '重接会话要排在员工列表赋值之后',

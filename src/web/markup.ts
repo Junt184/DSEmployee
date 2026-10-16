@@ -85,6 +85,7 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
        反过来 VIEW_IDS 里的非 chat 视图也都得在这里有个按钮 —— 两边都会静默失效
        （点了没反应 / 页面切过去了但永远空白），所以有测试逐项对。 -->
   <div class="tabs" id="viewTabs">
+    <button class="tab" data-view="projects">项目与任务</button>
     <button class="tab active" data-view="office">办公区</button>
     <!-- 办公室：观赏性的一页（谁在、谁在忙、点一下去找谁）。它排在办公区后面而不是取代它 ——
          办公区是每天要用的工作台，办公室是看的那一页，两者共用同一份员工与状态数据。
@@ -97,6 +98,38 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
     <button class="tab" data-view="health">体检 <span class="chip" id="healthChip"></span></button>
     <button class="tab" data-view="llm">员工配置</button>
   </div>
+
+  <section class="col project-workspace hidden" id="viewProjects">
+    <div class="project-heading"><div><h2>项目与任务</h2><p class="muted">打开电脑上的已有目录，直接开始工作。</p></div><button id="btnProjectRefresh" class="ghost">刷新</button></div>
+    <details class="card project-open" id="projectOpenPanel" open>
+      <summary>打开已有目录</summary>
+      <form id="projectOpenForm" class="project-open-form">
+        <label>执行节点<select id="projectNode" required aria-label="执行节点"></select></label>
+        <label class="project-path-field">节点上的目录<input id="projectPath" required placeholder="例如 /Users/你的名字/Projects/项目 或 D:\\Projects\\项目" autocomplete="off" spellcheck="false"></label>
+        <button id="btnProjectOpen" type="submit" class="primary">打开项目</button>
+      </form>
+      <p class="muted">目录必须已经存在于所选节点上；不会搬动文件或覆盖项目规则。</p>
+    </details>
+    <p id="projectNotice" class="project-notice muted" role="status" aria-live="polite"></p>
+    <div class="project-grid">
+      <aside class="card project-navigation">
+        <details open><summary>最近项目</summary><div id="projectList" class="project-list"></div></details>
+        <div class="project-task-heading"><strong>项目会话</strong><button id="btnProjectNewTask" class="ghost">新任务</button></div>
+        <label class="project-archive-filter"><input id="projectShowArchived" type="checkbox">显示已归档</label>
+        <div id="projectSessions" class="project-list"></div>
+      </aside>
+      <section class="card project-conversation" aria-label="项目对话">
+        <div class="project-conversation-heading"><div><h3 id="projectTaskTitle">选择项目开始工作</h3><div id="projectEnvironment" class="muted project-environment"></div><div id="projectTurnState" class="muted" role="status"></div></div><div class="project-actions"><button id="btnProjectRename" class="ghost">改名</button><button id="btnProjectArchive" class="ghost">归档</button><button id="btnProjectCancel" class="ghost hidden">停止</button></div></div>
+        <div id="projectMessages" class="project-messages" aria-label="项目消息"></div>
+        <button id="btnProjectLatest" class="ghost hidden">回到最新</button>
+        <div class="project-composer">
+          <div class="project-task-options"><label>新任务执行者<select id="projectEmployee" aria-label="新任务执行者"><option value="">通用助手（节点默认模型）</option></select></label><label>新任务名称<input id="projectTaskName" maxlength="200" placeholder="可选，留空也能直接开始"></label></div>
+          <label for="projectPrompt">任务指令</label><textarea id="projectPrompt" rows="3" placeholder="描述要做的事；提到的相对文件路径以当前项目为准。"></textarea>
+          <div class="project-composer-actions"><span class="muted">执行者用于新任务；已有会话保留原来的目录和执行者。</span><button id="btnProjectSend" class="primary">发送</button></div>
+        </div>
+      </section>
+    </div>
+  </section>
 
   <section class="col" id="viewOffice">
     <section class="card">
@@ -233,19 +266,34 @@ export function renderControlBody(parts: ControlUiMarkupParts): string {
           <span class="chip" id="roomSummary"></span>
         </span>
       </h2>
-      <!-- 说明里必须写出"怎么看"：走位与台词是玩的部分，但状态是正事，看不懂就等于没有。
-           灯的四色与姿态一一对应，读一遍就能认出"忙的、闲的、睡的、出事的"。
-           姓名为什么只说"指到就有"：它默认隐身（人多了常显会糊成一团）。 -->
-      <div class="muted">同事们在屋里随便走走，<b>点一下谁，他就跟你说句话</b>（会换着说，不会老是一句）；
-        <b>双击</b>头像、或点气泡里的「聊两句」就进对话。动作就是状态：<b>打字</b>=忙碌、<b>走路</b>=在线空闲、
-        <b>Zzz</b>=离线、<b>「!」发抖</b>=回合卡住需处理、<b>角标带数字</b>=有未读等你回话；头像上那颗小灯是同样的四色。
-        指到头像上会显示姓名与状态。天色跟着你电脑上的钟走，深夜会暗下来。</div>
-      <div class="room" id="roomRoom" data-tier="t10" data-daypart="day" role="group"
-        aria-label="办公室全景：同事们的头像在屋里走动，点一下他会说句话，双击开始对话">
-        <!-- 地面：一片椭圆。头像的影子落在它上面，"站在地上"这件事才成立 -->
-        <span class="room-ground"></span>
-        <!-- 场景层：一个个头像由脚本按人数撒在这一层里 -->
-        <div class="room-scene" id="roomFloor"></div>
+      <div class="room-layout">
+        <div class="room-stage-column">
+          <div class="room-hint">点一下谁，他就跟你说句话；双击或点「聊两句」开始真实对话。打字=忙、Zzz=离线、「!」=需处理、角标=未读；这些状态都是真实的。小剧场是虚构演出。</div>
+          <div class="room" id="roomRoom" data-tier="t10" data-daypart="day" role="group"
+            aria-label="办公室全景：同事们的头像在屋里走动，点一下他会说句话，双击开始对话">
+            <!-- 地面：一片椭圆。头像的影子落在它上面，"站在地上"这件事才成立 -->
+            <span class="room-ground"></span>
+            <!-- 场景层：一个个头像由脚本按人数撒在这一层里 -->
+            <div class="room-scene" id="roomFloor"></div>
+          </div>
+        </div>
+        <aside class="room-story-card" aria-labelledby="roomStoryTitle">
+          <div class="room-story-header">
+            <div>
+              <span class="room-story-eyebrow">今日限定 · 虚构演出</span>
+              <h3 id="roomStoryTitle">数字员工小剧场</h3>
+            </div>
+            <button id="roomStorybookToggle" class="room-storybook-toggle" type="button" aria-expanded="false" aria-controls="roomStorybook">
+              趣事簿 <span id="roomStorybookCount">0</span>
+            </button>
+          </div>
+          <div id="roomStoryContent" class="room-story-content"></div>
+          <section id="roomStorybook" class="room-storybook hidden" aria-label="收藏的趣事">
+            <h4>我的趣事簿</h4>
+            <div id="roomStorybookList"></div>
+          </section>
+          <p class="room-story-footnote">剧情由本地脚本演出，不读取工作内容，也不会触发员工任务。</p>
+        </aside>
       </div>
     </section>
   </section>

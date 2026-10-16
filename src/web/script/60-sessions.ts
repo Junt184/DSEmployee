@@ -122,6 +122,8 @@ function selectEmployee(employeeId, options) {
   loadSessionTree()
   var listing = loadSessions().then(function () {
     if (!stillEntering()) return
+    // 项目会话已交给项目工作台；员工列表的迟到响应不能再切走用户正在处理的项目。
+    if (state.view === 'projects') return
     /* 缓存和历史已经可读；列表刷新只更新标题与运行状态，不再把会话重新打开一遍。 */
     var entry = employeeSessionState(employeeId)
     if (state.selectedSessionId !== null) {
@@ -501,6 +503,7 @@ function appendSessionRow(list, employeeId, session) {
   if (active) item.setAttribute('aria-current', 'true')
   var top = el('div', 'item-top')
   top.appendChild(el('span', 'name', sessionTitleOf(session) || shortId(id)))
+  if (session.projectId) top.appendChild(el('span', 'badge off', session.projectName || '项目'))
   if (session.running === true) top.appendChild(el('span', 'badge ok', '运行中'))
   /* 改名入口：铅笔小按钮，桌面 hover 显现、手机常显但低调（样式见 .cs-edit） */
   var edit = el('button', 'cs-edit', '✎')

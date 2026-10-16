@@ -785,6 +785,12 @@ const employeeGet: Handler = async (hub, _conn, params) => {
 /* ── 会话订阅（Hub 本地维护订阅关系，事件由节点推送）── */
 
 const sessionSubscribe: Handler = async (hub, conn, params) => {
+  if (params !== null && typeof params === 'object' && 'projectId' in params) {
+    const input = parse(z.object({ nodeId: nodeIdSchema, projectId: z.string().min(1).max(128), sessionId: sessionIdSchema }), params, 'session.subscribe')
+    await forwardToNode(hub, input.nodeId, 'session.watch', { ...input, watch: true })
+    conn.subscriptions.add(input.sessionId)
+    return { subscribed: true, sessionId: input.sessionId }
+  }
   const input = parse(
     z.object({ employeeId: employeeIdSchema, sessionId: sessionIdSchema }),
     params,
@@ -804,6 +810,11 @@ const sessionSubscribe: Handler = async (hub, conn, params) => {
 }
 
 const sessionUnsubscribe: Handler = async (hub, conn, params) => {
+  if (params !== null && typeof params === 'object' && 'projectId' in params) {
+    const input = parse(z.object({ nodeId: nodeIdSchema, projectId: z.string().min(1).max(128), sessionId: sessionIdSchema }), params, 'session.unsubscribe')
+    conn.subscriptions.delete(input.sessionId)
+    return { subscribed: false, sessionId: input.sessionId }
+  }
   const input = parse(
     z.object({ employeeId: employeeIdSchema, sessionId: sessionIdSchema }),
     params,
@@ -828,6 +839,7 @@ const sessionPush: Handler = async (hub, conn, params) => {
       sessionId: sessionIdSchema,
       /** 该事件属于哪个员工 —— 控制端据此校验自己是否真的有权看 */
       employeeId: employeeIdSchema.optional(),
+      projectId: z.string().min(1).max(128).optional(),
       event: z.unknown(),
     }),
     params,
@@ -846,6 +858,8 @@ const sessionPush: Handler = async (hub, conn, params) => {
   }
 
   hub.broadcastSessionEvent(input.sessionId, {
+    nodeId: conn.nodeId,
+    projectId: input.projectId,
     employeeId: input.employeeId,
     event: input.event,
   })
@@ -888,6 +902,31 @@ function forwarder(
     const employeeId = input['employeeId']
     if (employeeId === undefined) throw protocolError('bad-request', 'employeeId is required')
     return await forwardToEmployeeNode(hub, employeeId, method, input)
+  }
+}
+
+/** 项目请求显式指定节点；会话的项目、路径和员工归属仍由该节点核验。 */
+function projectForwarder(method: string): Handler {
+  return async (hub, _conn, params) => {
+    const input = parse(z.object({ nodeId: nodeIdSchema,
+      projectId: z.string().min(1).max(128).optional(), employeeId: employeeIdSchema.optional(),
+      sessionId: sessionIdSchema.optional(), path: z.string().trim().min(1).max(4096).optional(),
+      name: z.string().trim().min(1).max(120).optional(), title: z.string().trim().min(1).max(200).optional(),
+    }).passthrough(), params, method)
+    if (method !== 'project.list' && method !== 'project.open' && input.projectId === undefined) throw protocolError('bad-request', '需要指定项目')
+    if (method === 'project.open' && input.path === undefined) throw protocolError('bad-request', '需要指定节点上的目录')
+    if (input.employeeId !== undefined && requireEmployee(hub, input.employeeId).nodeId !== input.nodeId) {
+      throw protocolError('bad-request', '执行员工与项目必须位于同一节点')
+    }
+    if (method === 'session.create') assertAgentPreset(input['agentPreset'], method)
+    return forwardToNode(hub, input.nodeId, method, input)
+  }
+}
+
+function sessionForwarder(method: string, required: readonly string[]): Handler {
+  return async (hub, conn, params) => {
+    if (params !== null && typeof params === 'object' && 'projectId' in params) return projectForwarder(method)(hub, conn, params)
+    return forwarder(method, required)(hub, conn, params)
   }
 }
 
@@ -940,6 +979,7 @@ const UPLOAD_BASE64_MAX_CHARS = Math.ceil((2 * 1024 * 1024 * 4) / 3) + 64 * 1024
  * 而"把显示名当 id 传"这种错的代价是一次必然失败的往返 + 一句用户看不懂的英文。
  */
 const sessionCreate: Handler = async (hub, conn, params) => {
+  if (params !== null && typeof params === 'object' && 'projectId' in params) return projectForwarder('session.create')(hub, conn, params)
   if (params !== null && typeof params === 'object' && !Array.isArray(params)) {
     assertAgentPreset((params as Record<string, unknown>)['agentPreset'], 'session.create')
   }
@@ -1920,6 +1960,9 @@ const dshInteractionRequest: Handler = async (hub, conn, params) => {
     z.object({
       kind: z.enum(['dsh.approval', 'dsh.question']),
       employeeId: employeeIdSchema.optional(),
+      projectId: z.string().min(1).max(128).optional(),
+      projectName: z.string().max(256).optional(),
+      projectPath: z.string().max(4096).optional(),
       sessionId: sessionIdSchema,
       rpcId: z.string().min(1).max(256),
       toolName: z.string().max(200).optional(),
@@ -1967,6 +2010,9 @@ const dshInteractionRequest: Handler = async (hub, conn, params) => {
     nodeId: conn.nodeId,
     sessionId: input.sessionId,
     rpcId: input.rpcId,
+    projectId: input.projectId,
+    projectName: input.projectName,
+    projectPath: input.projectPath,
   }
   const record: DshInteraction =
     input.kind === 'dsh.approval'
@@ -1982,7 +2028,7 @@ const dshInteractionRequest: Handler = async (hub, conn, params) => {
 
   state.approvals[approvalId] = record
   await hub.store.saveApprovals()
-  const employeeName0 = state.employees[record.employeeId]?.name ?? record.employeeId.slice(0, 8)
+  const employeeName0 = state.employees[record.employeeId]?.name ?? record.projectName ?? (record.employeeId.slice(0, 8) || '项目助手')
 
   /* 这个员工开了"审批自动放行" ⇒ 立刻裁决，不等人。
      留痕：resolvedBy 写成 auto:<员工>，审批页照样看得到这条与它的结局 ——
@@ -2016,7 +2062,7 @@ const dshInteractionRequest: Handler = async (hub, conn, params) => {
   }
   /* 也推一条手机通知：员工卡在审批上是"必须有人动手"的事，
      而用户不一定正开着控制台（真实事故：员工卡在 bash 上，谁都没发现）。 */
-  const employeeName = state.employees[record.employeeId]?.name ?? record.employeeId.slice(0, 8)
+  const employeeName = state.employees[record.employeeId]?.name ?? record.projectName ?? (record.employeeId.slice(0, 8) || '项目助手')
   void sendToAll(hub, {
     title: record.kind === 'dsh.approval' ? `${employeeName} 在等你批准` : `${employeeName} 问了你一个问题`,
     body:
@@ -2030,6 +2076,8 @@ const dshInteractionRequest: Handler = async (hub, conn, params) => {
     approvalId,
     kind: record.kind,
     employeeId: record.employeeId,
+    projectId: record.projectId,
+    projectName: record.projectName,
     sessionId: record.sessionId,
     requestedAtMs: now,
     ...(record.kind === 'dsh.approval' ? { toolName: record.toolName } : {}),
@@ -3112,14 +3160,17 @@ export const hubHandlers: Partial<Record<string, Handler>> = {
   'employee.avatar.remove': forwarder('employee.avatar.remove', ['employeeId']),
 
   /* 会话 */
-  'session.list': forwarder('session.list', ['employeeId']),
+  'project.list': projectForwarder('project.list'),
+  'project.open': projectForwarder('project.open'),
+  'project.files.download': projectForwarder('project.files.download'),
+  'session.list': sessionForwarder('session.list', ['employeeId']),
   'session.create': sessionCreate,
-  'session.prompt': forwarder('session.prompt', ['employeeId', 'sessionId']),
-  'session.cancel': forwarder('session.cancel', ['employeeId', 'sessionId']),
-  'session.compact': forwarder('session.compact', ['employeeId', 'sessionId']),
-  'session.rename': forwarder('session.rename', ['employeeId', 'sessionId', 'title']),
-  'session.archive': forwarder('session.archive', ['employeeId', 'sessionId']),
-  'session.history': forwarder('session.history', ['employeeId', 'sessionId']),
+  'session.prompt': sessionForwarder('session.prompt', ['employeeId', 'sessionId']),
+  'session.cancel': sessionForwarder('session.cancel', ['employeeId', 'sessionId']),
+  'session.compact': sessionForwarder('session.compact', ['employeeId', 'sessionId']),
+  'session.rename': sessionForwarder('session.rename', ['employeeId', 'sessionId', 'title']),
+  'session.archive': sessionForwarder('session.archive', ['employeeId', 'sessionId']),
+  'session.history': sessionForwarder('session.history', ['employeeId', 'sessionId']),
   'session.subscribe': sessionSubscribe,
   'session.unsubscribe': sessionUnsubscribe,
   'session.push': sessionPush,

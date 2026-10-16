@@ -44,7 +44,7 @@ function loadEmployees() {
       if (state.view === 'llm') renderLlmConfig()
       /* 选中的那位刚好从离线变回在线：把会话重新接上（强制重订 + 重读历史）。
          必须在 state.employees 更新之后判 —— 判定读的就是这里的 nodeOnline。 */
-      if (noteNodeOnline(state.employees) === true) resumeSelectedSession()
+      if (noteNodeOnline(state.employees) === true && state.view !== 'projects') resumeSelectedSession()
       /* 员工清单到位后立刻补一轮工位轮询：onHelloOk 里的首次轮询跑在
          employee.list 返回之前（emps=0），后台标签页的定时器又会被浏览器节流，
          不补这一轮的话首屏忙碌状态要等很久才出现 */
@@ -837,6 +837,7 @@ function groupKeyOf(employee) {
  * 所以标签条上没有它的按钮。
  */
 var VIEW_IDS = {
+  projects: 'viewProjects',
   office: 'viewOffice',
   officeRoom: 'viewOfficeRoom',
   approvals: 'viewApprovals',
@@ -855,6 +856,7 @@ var VIEW_IDS = {
  * 它们的数据由连接时和事件推送维护，切回来不该重新拉一遍。
  */
 var VIEW_LOADERS = {
+  projects: function () { loadProjectWorkspace() },
   /* 员工切换期间不重建隐藏的办公区，真正返回时再更新当前员工高亮。 */
   office: function () {
     renderEmployees()
@@ -891,6 +893,7 @@ var VIEW_LOADERS = {
 }
 
 function setView(view) {
+  if (state.view === 'projects' && view !== 'projects') projectSaveDraft()
   /* 只认表里有的视图；未知的一律回落到办公区。
      不回落的话会变成"所有页面一起隐身"—— 一屏空白，且没有任何报错。 */
   var target = Object.prototype.hasOwnProperty.call(VIEW_IDS, view) ? view : 'office'

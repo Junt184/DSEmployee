@@ -23,11 +23,11 @@ function employeeNameOf(employeeId) {
 function approvalSummaryText(approval) {
   if (approval === null || typeof approval !== 'object') return '（无详情）'
   if (approval.kind === 'dsh.approval') {
-    return employeeNameOf(approval.employeeId) + ' 请求批准执行「' + String(approval.toolName || '（未提供动作名）') + '」'
+    return (approval.employeeId ? employeeNameOf(approval.employeeId) : approval.projectName || '项目助手') + ' 请求批准执行「' + String(approval.toolName || '（未提供动作名）') + '」'
   }
   if (approval.kind === 'dsh.question') {
     var count = Array.isArray(approval.questions) ? approval.questions.length : 0
-    return employeeNameOf(approval.employeeId) + ' 有问题要问你' + (count > 0 ? '（' + String(count) + ' 个）' : '')
+    return (approval.employeeId ? employeeNameOf(approval.employeeId) : approval.projectName || '项目助手') + ' 有问题要问你' + (count > 0 ? '（' + String(count) + ' 个）' : '')
   }
   var from = String(approval.fromEmployeeName || employeeNameOf(approval.fromEmployeeId))
   var to = String(approval.toEmployeeName || employeeNameOf(approval.toEmployeeId))
@@ -73,7 +73,7 @@ function approvalEmployeeOf(approval) {
   }
   var fallbackName = ''
   if (approval !== null && typeof approval === 'object') {
-    fallbackName = String(approval.fromEmployeeName || '')
+    fallbackName = String(approval.fromEmployeeName || approval.projectName || '')
   }
   return {
     id: id === '' ? 'approval-' + String(approval && approval.approvalId ? approval.approvalId : 'unknown') : id,
@@ -284,6 +284,7 @@ function renderApprovalDetail(detail, approval, history) {
       detail.appendChild(reason)
     }
     appendApprovalMeta(detail, '会话', shortId(approval.sessionId || ''))
+    if (approval.projectName) appendApprovalMeta(detail, '项目', approval.projectName + (approval.projectPath ? ' · ' + approval.projectPath : ''))
     renderApprovalButtons(detail, approval)
     return
   }

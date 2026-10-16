@@ -342,7 +342,248 @@ var roomView = {
   spots: [],
   said: 0,
   lastLine: -1,
+  storyKey: '',
+  storyChoice: -1,
+  storybookOpen: false,
+  storyRenderKey: '',
+  storybookRenderKey: '',
   timer: null
+}
+
+/** 每日小剧场：纯本地的轻剧情，不读取员工工作内容，也不调用员工会话。 */
+var ROOM_STORIES = [
+  {
+    id: 'plant',
+    title: '绿萝今天有点不对劲',
+    setup: '早上刚到办公室，大家发现绿萝头上多了一顶纸帽。它看起来像是准备参加什么重要活动。',
+    choices: [
+      { label: '给它办一场正式发布会', ending: '发布会准时开始。绿萝在掌声中宣布：今天也要好好晒太阳。它凭借稳定发挥，当选本周最冷静的同事。' },
+      { label: '沿着纸屑线索破案', ending: '纸屑一路指向打印机。案件最终定名为《帽子的来源》，绿萝获得一件由便利贴改造的小披风。' }
+    ]
+  },
+  {
+    id: 'snack',
+    title: '最后一块饼干去哪了',
+    setup: '茶水间只剩最后一块饼干，旁边还摆着一张神秘纸条：「请把它交给最需要快乐的人。」',
+    choices: [
+      { label: '掰成两半，快乐共享', ending: '两个人都拿到了半块饼干，还认真给它起名叫「公平」。纸条的作者获得了下一包饼干的优先命名权。' },
+      { label: '把饼干送去失物招领', ending: '饼干被郑重登记，失主很快出现：是下午茶时间。全办公室一致决定，明天多准备一包。' }
+    ]
+  },
+  {
+    id: 'elevator',
+    title: '电梯里的神秘按钮',
+    setup: '电梯面板上多了一个画着小星星的按钮。没人知道它会去几楼，但按钮看起来很期待被按下。',
+    choices: [
+      { label: '按下按钮，看看会怎样', ending: '电梯没有移动，顶灯却变成了星星形状。大家把这一层命名为「心情不错层」，并给按钮放了个小假。' },
+      { label: '先给按钮做个访谈', ending: '经过一番认真采访，按钮承认自己只是贴纸。它被授予「最有存在感贴纸奖」，继续负责点亮大家的想象力。' }
+    ]
+  }
+]
+
+var ROOM_STORYBOOK_KEY = 'dse.roomStorybook'
+var ROOM_STORY_PROGRESS_KEY = 'dse.roomStoryProgress'
+
+function roomStoryDate() {
+  var now = new Date()
+  var month = now.getMonth() + 1
+  var day = now.getDate()
+  return {
+    key: String(now.getFullYear()) + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+    label: String(month) + '月' + String(day) + '日'
+  }
+}
+
+function roomStoryEpisodeOf(employees) {
+  var list = Array.isArray(employees) ? employees.slice() : []
+  list.sort(function (left, right) {
+    return String(left.id || '').localeCompare(String(right.id || ''), 'zh-CN')
+  })
+  var date = roomStoryDate()
+  var story = ROOM_STORIES[roomPick(roomHash('story:' + date.key), ROOM_STORIES.length)]
+  if (story === undefined) story = ROOM_STORIES[0]
+  var cast = []
+  if (list.length > 0) {
+    var leadIndex = roomPick(roomHash('lead:' + date.key), list.length)
+    var lead = list[leadIndex]
+    if (lead !== undefined) cast.push(lead)
+    if (list.length > 1) {
+      var guestOffset = 1 + roomPick(roomHash('guest:' + date.key), list.length - 1)
+      var guest = list[(leadIndex + guestOffset) % list.length]
+      if (guest !== undefined) cast.push(guest)
+    }
+  }
+  var castKey = cast.map(function (employee) { return String(employee.id || '') }).join(',')
+  return {
+    key: date.key + '|' + String(story.id || '') + '|' + castKey,
+    date: date,
+    story: story,
+    cast: cast
+  }
+}
+
+function roomStorybookRead() {
+  try {
+    var raw = readLocal(ROOM_STORYBOOK_KEY)
+    var parsed = raw === null ? [] : JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(function (item) {
+      return item !== null && typeof item === 'object' && typeof item.key === 'string' &&
+        typeof item.title === 'string' && typeof item.ending === 'string'
+    }).slice(0, 40)
+  } catch (error) {
+    return []
+  }
+}
+
+function roomStoryProgressRead(key) {
+  try {
+    var raw = readLocal(ROOM_STORY_PROGRESS_KEY)
+    var parsed = raw === null ? null : JSON.parse(raw)
+    if (parsed === null || typeof parsed !== 'object' || parsed.key !== key) return -1
+    var choice = Number(parsed.choice)
+    return Number.isInteger(choice) && choice >= 0 && choice < 2 ? choice : -1
+  } catch (error) {
+    return -1
+  }
+}
+
+function roomStorybookRender(records) {
+  var toggle = $('roomStorybookToggle')
+  var count = $('roomStorybookCount')
+  var book = $('roomStorybook')
+  var list = $('roomStorybookList')
+  if (count !== null) count.textContent = String(records.length)
+  if (toggle !== null) toggle.setAttribute('aria-expanded', roomView.storybookOpen ? 'true' : 'false')
+  if (book !== null) {
+    if (roomView.storybookOpen) book.classList.remove('hidden')
+    else book.classList.add('hidden')
+  }
+  if (list === null) return
+  clear(list)
+  if (records.length === 0) {
+    list.appendChild(el('p', 'room-storybook-empty', '还没有收藏。选一个结局，把今天的小故事收进来吧。'))
+    return
+  }
+  records.forEach(function (record) {
+    var item = el('article', 'room-storybook-entry')
+    var title = el('strong', '', record.title)
+    var date = el('span', 'room-storybook-date', record.date || '')
+    var ending = el('p', '', record.ending)
+    item.appendChild(title)
+    item.appendChild(date)
+    if (typeof record.cast === 'string' && record.cast !== '') item.appendChild(el('span', 'room-storybook-cast', '主演：' + record.cast))
+    item.appendChild(ending)
+    list.appendChild(item)
+  })
+}
+
+function roomStoryRender(focusAfter) {
+  var content = $('roomStoryContent')
+  if (content === null) return
+  var episode = roomStoryEpisodeOf(state.employees)
+  var castNames = episode.cast.map(function (employee) { return String(employee.name || employee.id || '同事') })
+  if (roomView.storyKey !== episode.key) {
+    roomView.storyKey = episode.key
+    roomView.storyChoice = roomStoryProgressRead(episode.key)
+  }
+  var records = roomStorybookRead()
+  var collected = {}
+  records.forEach(function (record) { collected[record.key] = true })
+  var choice = roomView.storyChoice
+  var selected = episode.story.choices[choice]
+  var selectedRecordKey = episode.key + ':' + String(choice)
+  var signature = [episode.key, castNames.join(','), String(choice), collected[selectedRecordKey] === true ? 'saved' : 'new'].join('|')
+  var bookSignature = [roomView.storybookOpen ? 'open' : 'closed', records.map(function (record) { return record.key }).join(',')].join('|')
+  if (roomView.storybookRenderKey !== bookSignature) {
+    roomView.storybookRenderKey = bookSignature
+    roomStorybookRender(records)
+  }
+
+  if (roomView.storyRenderKey !== signature) {
+    roomView.storyRenderKey = signature
+    clear(content)
+
+    var meta = el('div', 'room-story-meta')
+    meta.appendChild(el('span', 'room-story-date', episode.date.label))
+    meta.appendChild(el('span', 'room-story-fiction', '纯属虚构'))
+    content.appendChild(meta)
+    content.appendChild(el('h4', 'room-story-title', episode.story.title))
+    content.appendChild(el('p', 'room-story-setup', episode.story.setup))
+
+    if (episode.cast.length > 0) {
+      var cast = el('div', 'room-story-cast')
+      cast.appendChild(el('span', 'room-story-cast-label', '本集主演'))
+      episode.cast.forEach(function (employee, index) {
+        var actor = el('div', 'room-story-actor')
+        actor.appendChild(avatarNode(employee, 28))
+        actor.appendChild(el('span', '', castNames[index] || '同事'))
+        cast.appendChild(actor)
+      })
+      content.appendChild(cast)
+    }
+
+    var prompt = el('p', 'room-story-prompt', episode.cast.length > 0 ? '如果是你，会怎么收场？' : '接入员工后，这集就能开演。')
+    content.appendChild(prompt)
+    var choices = el('div', 'room-story-choices')
+    episode.story.choices.forEach(function (option, index) {
+      var button = el('button', 'room-story-choice' + (choice === index ? ' is-selected' : ''), option.label)
+      button.setAttribute('type', 'button')
+      button.setAttribute('aria-pressed', choice === index ? 'true' : 'false')
+      if (episode.cast.length === 0) button.disabled = true
+      button.onclick = function () {
+        roomView.storyChoice = index
+        writeLocal(ROOM_STORY_PROGRESS_KEY, JSON.stringify({ key: episode.key, choice: index }))
+        roomStoryRender('choice')
+      }
+      choices.appendChild(button)
+    })
+    content.appendChild(choices)
+
+    if (selected !== undefined && episode.cast.length > 0) {
+      var ending = el('div', 'room-story-ending')
+      ending.appendChild(el('span', 'room-story-ending-label', choice === 0 ? '结局 A' : '结局 B'))
+      ending.appendChild(el('p', '', selected.ending))
+      content.appendChild(ending)
+      var save = el('button', 'room-story-save', collected[selectedRecordKey] === true ? '已收进趣事簿 ✓' : '把这个结局收进趣事簿 ＋')
+      save.setAttribute('type', 'button')
+      save.disabled = collected[selectedRecordKey] === true
+      save.onclick = function () {
+        var current = roomStorybookRead()
+        var key = episode.key + ':' + String(choice)
+        var alreadySaved = current.some(function (record) { return record.key === key })
+        if (!alreadySaved) {
+          current.unshift({
+            key: key,
+            title: episode.story.title + ' · ' + (choice === 0 ? '结局 A' : '结局 B'),
+            ending: selected.ending,
+            date: episode.date.label,
+            cast: castNames.join('、')
+          })
+          writeLocal(ROOM_STORYBOOK_KEY, JSON.stringify(current.slice(0, 40)))
+        }
+        roomStoryRender('save')
+      }
+      content.appendChild(save)
+    }
+  }
+
+  if (focusAfter === 'choice') {
+    var selectedButton = content.querySelector('.room-story-choice.is-selected')
+    if (selectedButton !== null && typeof selectedButton.focus === 'function') selectedButton.focus()
+  } else if (focusAfter === 'save') {
+    var saveButton = content.querySelector('.room-story-save')
+    if (saveButton !== null && typeof saveButton.focus === 'function') saveButton.focus()
+  }
+}
+
+var roomStorybookToggle = $('roomStorybookToggle')
+if (roomStorybookToggle !== null) {
+  roomStorybookToggle.onclick = function () {
+    roomView.storybookOpen = !roomView.storybookOpen
+    roomView.storybookRenderKey = ''
+    roomStoryRender()
+  }
 }
 
 /* ═══ 渲染 ═══ */
@@ -529,6 +770,7 @@ function renderOfficeRoom() {
 
   var sign = $('roomSummary')
   if (sign !== null) sign.textContent = employees.length === 0 ? '' : roomSummary(employees)
+  roomStoryRender()
 
   if (employees.length === 0) {
     clear(scene)
@@ -626,6 +868,7 @@ function roomClockStart() {
     var stage = $('roomRoom')
     if (stage === null) return
     stage.setAttribute('data-daypart', roomDaypartOf(new Date().getHours()))
+    roomStoryRender()
   }, 600000)
 }
 

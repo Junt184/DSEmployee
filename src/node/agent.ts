@@ -36,6 +36,7 @@ import { forwarderPort, normalizeProxyConfig, startLocalForwarder, type LocalFor
 import { isPermissionPreset, PERMISSION_PRESETS, readDefaultPreset, writeDefaultPreset } from './permission.ts'
 import { historyEntrySeq, pageEvents, sanitizeHistoryEvents, sanitizeLiveEvent } from './session-payload.ts'
 import { SessionArchiveStore } from './session-archive.ts'
+import { ProjectRuntime, ProjectStore } from './projects.ts'
 import {
   activeModelOf,
   applyLlmToSession,
@@ -117,6 +118,8 @@ export class NodeAgent {
   #dshProcess: DshProcess | undefined
   #dsh: DshClient | undefined
   #store: EmployeeStore | undefined
+  #projects: ProjectRuntime | undefined
+  #projectInitError: string | undefined
   #hub: HubClient | undefined
   #downlink: DshDownlink | undefined
   #stopping = false
@@ -234,6 +237,22 @@ export class NodeAgent {
       ...(savedToken.token === undefined ? {} : { token: savedToken.token }),
     })
     this.#hub = hub
+    const projects = new ProjectStore(path.join(home, 'nodes', safeName(this.options.name), 'projects.json'), hub.identity.deviceId)
+    try {
+      await projects.init()
+      this.#projects = new ProjectRuntime({
+        store: projects, dsh: this.#dsh, employees: this.#store, defaultPreset: this.options.defaultPreset,
+        log: message => this.#log(message),
+        watch: (sessionId, employeeId, watching) => {
+          if (watching) this.#watchedSessions.add(sessionId)
+          else this.#watchedSessions.delete(sessionId)
+          if (employeeId !== undefined) this.#sessionOwner.set(sessionId, employeeId)
+        },
+      })
+    } catch (error) {
+      this.#projectInitError = `项目记录读取失败，原文件已保留：${error instanceof Error ? error.message : String(error)}`
+      this.#log(`warning: ${this.#projectInitError}; existing employee workspaces remain available`)
+    }
 
     hub.on('deviceToken', ({ token }) => {
       void writeJsonFile(tokenFile, { token, savedAtMs: Date.now() }).then(() =>
@@ -474,6 +493,11 @@ export class NodeAgent {
     const store = this.#requireStore()
     const dsh = this.#requireDsh()
 
+    if (this.#projectInitError !== undefined && (method.startsWith('project.') || params['projectId'] !== undefined)) {
+      throw protocolError('bad-request', this.#projectInitError)
+    }
+    if (this.#projects?.handles(method, params)) return this.#projects.handle(method, params)
+
     switch (method) {
       /* ── 员工 ── */
       case 'employee.create': {
@@ -635,14 +659,20 @@ export class NodeAgent {
         const employee = await this.#findEmployee(requireString(params, 'employeeId'))
         const [all, archives] = await Promise.all([dsh.sessionList(), this.#sessionArchives.list(employee.workspacePath)])
         const sessions = (all.items as Array<Record<string, unknown>>).filter(
-          (item) => typeof item['cwd'] === 'string' && path.resolve(item['cwd']) === employee.workspacePath,
+          (item) => {
+            const binding = this.#projects?.store.binding(String(item['sessionId']))
+            return binding === undefined
+              ? typeof item['cwd'] === 'string' && path.resolve(item['cwd']) === employee.workspacePath
+              : binding.employeeId === employee.id
+          },
         )
+        for (let i = 0; i < sessions.length; i += 1) sessions[i] = this.#projects?.decorate(sessions[i]!) ?? sessions[i]!
         for (const session of sessions) {
           const id = session['sessionId']
           if (typeof id !== 'string') continue
-          session['archived'] = archives.has(id)
+          if (session['projectId'] === undefined) session['archived'] = archives.has(id)
           const archivedAtMs = archives.get(id)
-          if (archivedAtMs !== undefined) session['archivedAtMs'] = archivedAtMs
+          if (session['projectId'] === undefined && archivedAtMs !== undefined) session['archivedAtMs'] = archivedAtMs
           this.#sessionOwner.set(id, employee.id)
           /* 带上"最后一次事件的时刻"：控制台据此在没人盯着的时候也能看出"这个回合疑似卡死"。
              没收到过事件的会话不填该字段（不假装有数据）。 */
@@ -1237,6 +1267,8 @@ export class NodeAgent {
     }
 
     const employeeId = await this.#resolveSessionOwner(sessionId)
+    const binding = this.#projects?.store.binding(sessionId)
+    const project = binding === undefined ? undefined : this.#projects?.store.project(binding.projectId)
     const kind = method === 'approval/requested' ? 'dsh.approval' : 'dsh.question'
     const result = await hub.call<{ approvalId: string; created: boolean }>(
       'dsh.interaction.request',
@@ -1245,6 +1277,7 @@ export class NodeAgent {
         sessionId,
         rpcId: frame.rpcId,
         ...(employeeId === undefined ? {} : { employeeId }),
+        ...(project === undefined ? {} : { projectId: project.projectId, projectName: project.name, projectPath: project.path }),
         ...(kind === 'dsh.approval'
           ? {
               toolName: typeof payload['toolName'] === 'string' ? payload['toolName'] : undefined,
@@ -1272,6 +1305,8 @@ export class NodeAgent {
    * 会话清单里取该会话的 cwd，再按工作区路径反查员工，并顺手把结果缓存下来。
    */
   async #resolveSessionOwner(sessionId: string): Promise<string | undefined> {
+    const binding = this.#projects?.store.binding(sessionId)
+    if (binding !== undefined) return binding.employeeId
     const cached = this.#sessionOwner.get(sessionId)
     if (cached !== undefined) return cached
     const dsh = this.#dsh
@@ -1340,9 +1375,11 @@ export class NodeAgent {
       this.#sessionLastEventAt.set(sessionId, Date.now())
       if (!this.#watchedSessions.has(sessionId)) return
       const employeeId = this.#sessionOwner.get(sessionId)
+      const projectId = this.#projects?.store.binding(sessionId)?.projectId
       await hub
         .call('session.push', {
           sessionId,
+          ...(projectId === undefined ? {} : { projectId }),
           ...(employeeId === undefined ? {} : { employeeId }),
           event,
         })

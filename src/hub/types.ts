@@ -373,6 +373,10 @@ interface ApprovalBase {
   /** 裁决者的 deviceId（dsh 侧自行解决的记录没有这一项） */
   resolvedBy?: string
   resolutionNote?: string
+  /** 项目任务的来源；旧员工会话没有这些字段。 */
+  projectId?: string
+  projectName?: string
+  projectPath?: string
 }
 
 /** 员工互调：命中 ACL 的 `approve` 规则，等控制台放行。 */

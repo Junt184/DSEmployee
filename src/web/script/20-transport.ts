@@ -349,6 +349,7 @@ function onEvent(frame) {
     return
   }
   if (event === 'session.event') {
+    if (typeof onProjectSessionEvent === 'function') onProjectSessionEvent(payload)
     onSessionEvent(payload)
     return
   }
@@ -402,6 +403,7 @@ function onEvent(frame) {
     /* loadEmployees 收尾时会比对在线状态：选中的那位从离线变回在线就重接会话
        （见 noteNodeOnline —— 判据是"翻转那一次"，不是"每次事件都清屏重读"）。 */
     loadEmployees()
+    if (state.view === 'projects') loadProjectWorkspace()
     /* 岗位卡片开着的话跟着重绘（人数/未使用状态会变） */
     var positionsCard = $('cardPositions')
     if (positionsCard !== null && positionsCard.open === true) renderPositionAdmin()
@@ -551,12 +553,12 @@ function onHelloOk(payload) {
   loadEmployees().then(function () {
     if (state.phase !== 'ready') return
     /* 启动时这些页面尚未联网；目录到位后补拉当前页面。 */
-    if (state.view === restoringView && ['officeRoom', 'jobs', 'health', 'llm'].indexOf(restoringView) >= 0) {
+    if (state.view === restoringView && ['projects', 'officeRoom', 'jobs', 'health', 'llm'].indexOf(restoringView) >= 0) {
       VIEW_LOADERS[restoringView]()
     }
     if (state.phase !== 'ready' || state.selectedEmployeeId !== restoringEmployee ||
         state.employeeSelectionVersion !== restoringSelection || state.sessionOpenVersion !== restoringOpen) return
-    if (restoringEmployee === null || employeeById(restoringEmployee) === null) return
+    if (state.view === 'projects' || restoringEmployee === null || employeeById(restoringEmployee) === null) return
     if (restoringSession === null) {
       if (state.view === 'chat') return selectEmployee(restoringEmployee)
       return
@@ -1093,6 +1095,7 @@ function setAuthError(message) {
 }
 
 function syncControls() {
+  if (typeof syncProjectControls === 'function') syncProjectControls()
   var ready = state.phase === 'ready'
   var scopes = state.scopes
   var canRead = ready && scopes.indexOf('employee.read') >= 0

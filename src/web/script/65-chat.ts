@@ -193,6 +193,8 @@ function rememberChatView() {
 }
 
 function openSession(sessionId) {
+  var projectSession = (state.sessions || []).find(function (session) { return sessionIdOf(session) === sessionId && session.projectId })
+  if (projectSession !== undefined) return openProjectSessionFromEmployee(projectSession)
   var employeeId = state.selectedEmployeeId
   var sameSession = state.selectedSessionId === sessionId && state.chatHistory !== null &&
     state.chatHistory !== undefined && state.chatHistory.employeeId === employeeId
@@ -683,6 +685,10 @@ function appendInlineToken(container, token, employeeId) {
       return
     }
     var filePath = workspaceFilePath(url)
+    if (filePath !== null && employeeId !== null && typeof employeeId === 'object' && typeof employeeId.projectId === 'string') {
+      container.appendChild(projectFileCard(employeeId, filePath, label))
+      return
+    }
     if (filePath !== null && typeof employeeId === 'string' && employeeId !== '') {
       container.appendChild(employeeFileCard(employeeId, filePath, label))
       return

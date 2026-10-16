@@ -66,6 +66,7 @@ var ALL_SCOPES = ['employee.read', 'employee.prompt', 'employee.invoke', 'employ
    不必靠人记得回来核对；rpc() 另有一层自愈兜底，见下。
    （node.register 也带幂等键要求，但它是 node 角色专属，页面不会调，不收。） */
 var IDEMPOTENT_METHODS = {
+  'project.open': true,
   'session.create': true,
   'session.rename': true,
   'session.prompt': true,
